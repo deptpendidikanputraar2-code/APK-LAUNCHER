@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.launcher.model.BatteryIconStyle
+import com.example.launcher.model.CustomNotificationSound
 import com.example.launcher.model.DockColorPreset
 import com.example.launcher.model.DockLayoutMode
 import com.example.launcher.model.DynamicIslandConfig
@@ -17,28 +18,40 @@ import com.example.launcher.model.DynamicIslandStyle
 import com.example.launcher.model.EdgePanelTriggerZone
 import com.example.launcher.model.HomeWidgetPlacement
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LockClockColor
+import com.example.launcher.model.LockClockStyle
 import com.example.launcher.model.LockSecurityMode
 import com.example.launcher.model.PageTransitionStyle
 import com.example.launcher.model.PopupStyle
 import com.example.launcher.model.QuickModuleConfig
 import com.example.launcher.model.QuickModuleType
 import com.example.launcher.model.QuickPanelOrientation
+import com.example.launcher.model.SearchBarColorPreset
+import com.example.launcher.model.SearchBarConfig
+import com.example.launcher.model.SearchBarPosition
+import com.example.launcher.model.SearchBarShape
 import com.example.launcher.model.SidebarItemConfig
 import com.example.launcher.model.SidebarItemType
 import com.example.launcher.model.SidebarSide
 import com.example.launcher.model.StatusIndicatorPosition
 import com.example.launcher.model.StatusSlotAlignment
 import com.example.launcher.model.TransitionSpeed
+import com.example.launcher.model.WallpaperColorTone
+import com.example.launcher.model.WallpaperConfig
+import com.example.launcher.model.WallpaperGlassStyle
+import com.example.launcher.model.WallpaperParticleOverlay
 import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.model.WidgetStackMode
 import com.example.launcher.model.WidgetType
 import com.example.launcher.model.defaultHomeWidgetPlacements
+import com.example.launcher.model.defaultLockWidgets
 import com.example.launcher.model.defaultQuickModules
 import com.example.launcher.model.defaultSidebarItems
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import java.util.Locale
 
 private val Context.launcherDataStore: DataStore<Preferences> by preferencesDataStore(
     name = "vitro_launcher_prefs"
@@ -58,8 +71,19 @@ class LauncherPreferencesRepository(private val context: Context) {
         val WIDGET_STACK_MODE = stringPreferencesKey("widget_stack_mode")
         val ENABLED_WIDGETS = stringPreferencesKey("enabled_widgets")
         val HOME_WIDGETS_V2 = stringPreferencesKey("home_widgets_v2")
+        val LOCK_WIDGETS_V1 = stringPreferencesKey("lock_widgets_v1")
         val WIDGET_OPACITY = floatPreferencesKey("widget_opacity")
         val QUICK_NOTE = stringPreferencesKey("quick_note")
+
+        val SB_ENABLED = booleanPreferencesKey("sb_enabled")
+        val SB_POS = stringPreferencesKey("sb_pos")
+        val SB_SHAPE = stringPreferencesKey("sb_shape")
+        val SB_COLOR = stringPreferencesKey("sb_color")
+        val SB_OPACITY = floatPreferencesKey("sb_opacity")
+        val SB_WIDTH = floatPreferencesKey("sb_width")
+        val SB_HEIGHT = intPreferencesKey("sb_height")
+        val SB_X = floatPreferencesKey("sb_x")
+        val SB_Y = floatPreferencesKey("sb_y")
 
         val QP_ORIENTATION = stringPreferencesKey("qp_orientation")
         val QP_OPACITY = floatPreferencesKey("qp_opacity")
@@ -85,6 +109,9 @@ class LauncherPreferencesRepository(private val context: Context) {
         val DI_NOTIF = booleanPreferencesKey("di_notif")
         val DI_MEDIA = booleanPreferencesKey("di_media")
         val DI_FOCUS = booleanPreferencesKey("di_focus")
+        val DI_AUTO_NOTIF = booleanPreferencesKey("di_auto_notif")
+        val DI_AUTO_SYS = booleanPreferencesKey("di_auto_sys")
+        val DI_DUAL_SPLIT = booleanPreferencesKey("di_dual_split")
 
         val HIDE_SYSTEM_STATUS_BAR = booleanPreferencesKey("hide_system_status_bar")
         val STATUS_POSITION = stringPreferencesKey("status_position")
@@ -95,6 +122,10 @@ class LauncherPreferencesRepository(private val context: Context) {
         val SHOW_WIFI = booleanPreferencesKey("show_wifi")
         val SHOW_BATTERY_PCT = booleanPreferencesKey("show_battery_pct")
 
+        val REPLACE_SYSTEM_NOTIF = booleanPreferencesKey("replace_system_notif")
+        val SHOW_SYS_WIDE_ISLAND = booleanPreferencesKey("show_sys_wide_island")
+        val ACTIVE_NOTIF_SOUND = stringPreferencesKey("active_notif_sound")
+        val CUSTOM_NOTIF_SOUNDS = stringPreferencesKey("custom_notif_sounds")
         val HOME_POPUP_STYLE = stringPreferencesKey("home_popup_style")
         val LOCK_POPUP_STYLE = stringPreferencesKey("lock_popup_style")
         val POPUP_CORNER = floatPreferencesKey("popup_corner")
@@ -105,8 +136,13 @@ class LauncherPreferencesRepository(private val context: Context) {
         val HOME_ROWS = intPreferencesKey("home_rows")
         val HOME_PAGE_SCALE = floatPreferencesKey("home_page_scale")
         val LOCK_PAGE_COUNT = intPreferencesKey("lock_page_count")
+        val LOCK_CLOCK_STYLE = stringPreferencesKey("lock_clock_style")
+        val LOCK_CLOCK_COLOR = stringPreferencesKey("lock_clock_color")
         val LOCK_CLOCK_SCALE = floatPreferencesKey("lock_clock_scale")
+        val LOCK_CLOCK_V_OFFSET = floatPreferencesKey("lock_clock_v_offset")
+        val LOCK_CLOCK_WEIGHT = intPreferencesKey("lock_clock_weight")
         val LOCK_PAGE_SCALE = floatPreferencesKey("lock_page_scale")
+        val REPLACE_SYSTEM_LOCK = booleanPreferencesKey("replace_system_lock")
         val DOUBLE_TAP_LOCK = booleanPreferencesKey("double_tap_lock")
         val LOCK_SECURITY_MODE = stringPreferencesKey("lock_security_mode")
         val LOCK_PASSCODE_HASH = stringPreferencesKey("lock_passcode_hash")
@@ -121,6 +157,9 @@ class LauncherPreferencesRepository(private val context: Context) {
         val SIDEBAR_ITEMS = stringPreferencesKey("sidebar_items")
         val AMBIENT_GLOW = floatPreferencesKey("ambient_glow_intensity")
         val WALLPAPER = stringPreferencesKey("wallpaper")
+        val WP_HOME_V2 = stringPreferencesKey("wp_home_v2")
+        val WP_SEPARATE_LOCK = booleanPreferencesKey("wp_separate_lock")
+        val WP_LOCK_V2 = stringPreferencesKey("wp_lock_v2")
     }
 
     val configFlow: Flow<LauncherConfig> = context.launcherDataStore.data
@@ -131,6 +170,7 @@ class LauncherPreferencesRepository(private val context: Context) {
         .map { prefs ->
             val defaults = LauncherConfig()
             val diDef = defaults.dynamicIsland
+            val sbDef = defaults.searchBar
             LauncherConfig(
                 dockLayout = prefs[Keys.DOCK_LAYOUT].toEnumOrDefault(defaults.dockLayout),
                 dockColor = prefs[Keys.DOCK_COLOR].toEnumOrDefault(defaults.dockColor),
@@ -150,8 +190,22 @@ class LauncherPreferencesRepository(private val context: Context) {
                 } ?: defaults.enabledWidgets,
                 homeWidgets = prefs[Keys.HOME_WIDGETS_V2]?.let { decodeHomeWidgets(it) }
                     ?: defaultHomeWidgetPlacements(),
+                lockWidgets = prefs[Keys.LOCK_WIDGETS_V1]?.let { decodeHomeWidgets(it) }
+                    ?: defaultLockWidgets(),
                 widgetGlassOpacity = prefs[Keys.WIDGET_OPACITY] ?: defaults.widgetGlassOpacity,
                 quickNoteText = prefs[Keys.QUICK_NOTE] ?: defaults.quickNoteText,
+
+                searchBar = SearchBarConfig(
+                    enabledOnHome = prefs[Keys.SB_ENABLED] ?: sbDef.enabledOnHome,
+                    position = prefs[Keys.SB_POS].toEnumOrDefault(sbDef.position),
+                    shape = prefs[Keys.SB_SHAPE].toEnumOrDefault(sbDef.shape),
+                    colorPreset = prefs[Keys.SB_COLOR].toEnumOrDefault(sbDef.colorPreset),
+                    opacity = (prefs[Keys.SB_OPACITY] ?: sbDef.opacity).coerceIn(0.08f, 0.85f),
+                    widthPercent = (prefs[Keys.SB_WIDTH] ?: sbDef.widthPercent).coerceIn(0.50f, 1.0f),
+                    heightDp = (prefs[Keys.SB_HEIGHT] ?: sbDef.heightDp).coerceIn(40, 68),
+                    xOffsetDp = (prefs[Keys.SB_X] ?: sbDef.xOffsetDp).coerceIn(-120f, 120f),
+                    yOffsetDp = (prefs[Keys.SB_Y] ?: sbDef.yOffsetDp).coerceIn(-120f, 360f)
+                ),
 
                 quickPanelOrientation = prefs[Keys.QP_ORIENTATION].toEnumOrDefault(defaults.quickPanelOrientation),
                 quickPanelGlassOpacity = prefs[Keys.QP_OPACITY] ?: defaults.quickPanelGlassOpacity,
@@ -178,7 +232,10 @@ class LauncherPreferencesRepository(private val context: Context) {
                     showBattery = prefs[Keys.DI_BATTERY] ?: diDef.showBattery,
                     showNotifications = prefs[Keys.DI_NOTIF] ?: diDef.showNotifications,
                     showMedia = prefs[Keys.DI_MEDIA] ?: diDef.showMedia,
-                    showFocusTimer = prefs[Keys.DI_FOCUS] ?: diDef.showFocusTimer
+                    showFocusTimer = prefs[Keys.DI_FOCUS] ?: diDef.showFocusTimer,
+                    autoExpandOnNotification = prefs[Keys.DI_AUTO_NOTIF] ?: diDef.autoExpandOnNotification,
+                    autoExpandOnSystemStatus = prefs[Keys.DI_AUTO_SYS] ?: diDef.autoExpandOnSystemStatus,
+                    showDualSplitBubble = prefs[Keys.DI_DUAL_SPLIT] ?: diDef.showDualSplitBubble
                 ),
 
                 hideSystemStatusBar = prefs[Keys.HIDE_SYSTEM_STATUS_BAR] ?: defaults.hideSystemStatusBar,
@@ -190,6 +247,11 @@ class LauncherPreferencesRepository(private val context: Context) {
                 showWifiIndicator = prefs[Keys.SHOW_WIFI] ?: defaults.showWifiIndicator,
                 showBatteryPercent = prefs[Keys.SHOW_BATTERY_PCT] ?: defaults.showBatteryPercent,
 
+                replaceSystemNotifications = prefs[Keys.REPLACE_SYSTEM_NOTIF] ?: defaults.replaceSystemNotifications,
+                showSystemWideDynamicIsland = prefs[Keys.SHOW_SYS_WIDE_ISLAND] ?: defaults.showSystemWideDynamicIsland,
+                activeNotifSoundId = prefs[Keys.ACTIVE_NOTIF_SOUND] ?: defaults.activeNotifSoundId,
+                customNotifSounds = prefs[Keys.CUSTOM_NOTIF_SOUNDS]?.let { decodeCustomSounds(it) }
+                    ?: emptyList(),
                 homePopupStyle = prefs[Keys.HOME_POPUP_STYLE].toEnumOrDefault(defaults.homePopupStyle),
                 lockPopupStyle = prefs[Keys.LOCK_POPUP_STYLE].toEnumOrDefault(defaults.lockPopupStyle),
                 popupCornerRadius = prefs[Keys.POPUP_CORNER] ?: defaults.popupCornerRadius,
@@ -200,8 +262,13 @@ class LauncherPreferencesRepository(private val context: Context) {
                 homeGridRows = (prefs[Keys.HOME_ROWS] ?: defaults.homeGridRows).coerceIn(4, 7),
                 homePageScale = (prefs[Keys.HOME_PAGE_SCALE] ?: defaults.homePageScale).coerceIn(0.85f, 1.15f),
                 lockPageCount = (prefs[Keys.LOCK_PAGE_COUNT] ?: defaults.lockPageCount).coerceIn(1, 4),
-                lockClockScale = (prefs[Keys.LOCK_CLOCK_SCALE] ?: defaults.lockClockScale).coerceIn(0.8f, 1.25f),
+                lockClockStyle = prefs[Keys.LOCK_CLOCK_STYLE].toEnumOrDefault(defaults.lockClockStyle),
+                lockClockColor = prefs[Keys.LOCK_CLOCK_COLOR].toEnumOrDefault(defaults.lockClockColor),
+                lockClockScale = (prefs[Keys.LOCK_CLOCK_SCALE] ?: defaults.lockClockScale).coerceIn(0.55f, 1.85f),
+                lockClockVerticalOffsetDp = (prefs[Keys.LOCK_CLOCK_V_OFFSET] ?: defaults.lockClockVerticalOffsetDp).coerceIn(-60f, 160f),
+                lockClockWeight = (prefs[Keys.LOCK_CLOCK_WEIGHT] ?: defaults.lockClockWeight).coerceIn(300, 900),
                 lockPageScale = (prefs[Keys.LOCK_PAGE_SCALE] ?: defaults.lockPageScale).coerceIn(0.85f, 1.12f),
+                replaceSystemLockScreen = prefs[Keys.REPLACE_SYSTEM_LOCK] ?: defaults.replaceSystemLockScreen,
                 doubleTapToLock = prefs[Keys.DOUBLE_TAP_LOCK] ?: defaults.doubleTapToLock,
                 lockSecurityMode = prefs[Keys.LOCK_SECURITY_MODE].toEnumOrDefault(defaults.lockSecurityMode),
                 lockPasscodeHash = prefs[Keys.LOCK_PASSCODE_HASH] ?: defaults.lockPasscodeHash,
@@ -216,7 +283,14 @@ class LauncherPreferencesRepository(private val context: Context) {
                 sidebarItems = prefs[Keys.SIDEBAR_ITEMS]?.let { decodeSidebarItems(it) }
                     ?: defaultSidebarItems(),
                 ambientGlowIntensity = (prefs[Keys.AMBIENT_GLOW] ?: defaults.ambientGlowIntensity).coerceIn(0f, 1f),
-                wallpaperPreset = prefs[Keys.WALLPAPER].toEnumOrDefault(defaults.wallpaperPreset)
+                wallpaperPreset = prefs[Keys.WALLPAPER].toEnumOrDefault(defaults.wallpaperPreset),
+                wallpaperConfig = prefs[Keys.WP_HOME_V2]?.let { decodeWallpaperConfig(it, defaults.wallpaperConfig) }
+                    ?: defaults.wallpaperConfig.copy(
+                        preset = prefs[Keys.WALLPAPER].toEnumOrDefault(defaults.wallpaperPreset)
+                    ),
+                separateLockWallpaper = prefs[Keys.WP_SEPARATE_LOCK] ?: defaults.separateLockWallpaper,
+                lockWallpaperConfig = prefs[Keys.WP_LOCK_V2]?.let { decodeWallpaperConfig(it, defaults.lockWallpaperConfig) }
+                    ?: defaults.lockWallpaperConfig
             )
         }
 
@@ -233,8 +307,20 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.WIDGET_STACK_MODE] = config.widgetStackMode.name
             prefs[Keys.ENABLED_WIDGETS] = config.enabledWidgets.joinToString("|") { it.name }
             prefs[Keys.HOME_WIDGETS_V2] = encodeHomeWidgets(config.homeWidgets)
+            prefs[Keys.LOCK_WIDGETS_V1] = encodeHomeWidgets(config.lockWidgets)
             prefs[Keys.WIDGET_OPACITY] = config.widgetGlassOpacity
             prefs[Keys.QUICK_NOTE] = config.quickNoteText
+
+            val sb = config.searchBar
+            prefs[Keys.SB_ENABLED] = sb.enabledOnHome
+            prefs[Keys.SB_POS] = sb.position.name
+            prefs[Keys.SB_SHAPE] = sb.shape.name
+            prefs[Keys.SB_COLOR] = sb.colorPreset.name
+            prefs[Keys.SB_OPACITY] = sb.opacity
+            prefs[Keys.SB_WIDTH] = sb.widthPercent
+            prefs[Keys.SB_HEIGHT] = sb.heightDp
+            prefs[Keys.SB_X] = sb.xOffsetDp
+            prefs[Keys.SB_Y] = sb.yOffsetDp
 
             prefs[Keys.QP_ORIENTATION] = config.quickPanelOrientation.name
             prefs[Keys.QP_OPACITY] = config.quickPanelGlassOpacity
@@ -261,6 +347,9 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.DI_NOTIF] = di.showNotifications
             prefs[Keys.DI_MEDIA] = di.showMedia
             prefs[Keys.DI_FOCUS] = di.showFocusTimer
+            prefs[Keys.DI_AUTO_NOTIF] = di.autoExpandOnNotification
+            prefs[Keys.DI_AUTO_SYS] = di.autoExpandOnSystemStatus
+            prefs[Keys.DI_DUAL_SPLIT] = di.showDualSplitBubble
 
             prefs[Keys.HIDE_SYSTEM_STATUS_BAR] = config.hideSystemStatusBar
             prefs[Keys.STATUS_POSITION] = config.statusPosition.name
@@ -271,6 +360,10 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.SHOW_WIFI] = config.showWifiIndicator
             prefs[Keys.SHOW_BATTERY_PCT] = config.showBatteryPercent
 
+            prefs[Keys.REPLACE_SYSTEM_NOTIF] = config.replaceSystemNotifications
+            prefs[Keys.SHOW_SYS_WIDE_ISLAND] = config.showSystemWideDynamicIsland
+            prefs[Keys.ACTIVE_NOTIF_SOUND] = config.activeNotifSoundId
+            prefs[Keys.CUSTOM_NOTIF_SOUNDS] = encodeCustomSounds(config.customNotifSounds)
             prefs[Keys.HOME_POPUP_STYLE] = config.homePopupStyle.name
             prefs[Keys.LOCK_POPUP_STYLE] = config.lockPopupStyle.name
             prefs[Keys.POPUP_CORNER] = config.popupCornerRadius
@@ -281,8 +374,13 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.HOME_ROWS] = config.homeGridRows
             prefs[Keys.HOME_PAGE_SCALE] = config.homePageScale
             prefs[Keys.LOCK_PAGE_COUNT] = config.lockPageCount
+            prefs[Keys.LOCK_CLOCK_STYLE] = config.lockClockStyle.name
+            prefs[Keys.LOCK_CLOCK_COLOR] = config.lockClockColor.name
             prefs[Keys.LOCK_CLOCK_SCALE] = config.lockClockScale
+            prefs[Keys.LOCK_CLOCK_V_OFFSET] = config.lockClockVerticalOffsetDp
+            prefs[Keys.LOCK_CLOCK_WEIGHT] = config.lockClockWeight
             prefs[Keys.LOCK_PAGE_SCALE] = config.lockPageScale
+            prefs[Keys.REPLACE_SYSTEM_LOCK] = config.replaceSystemLockScreen
             prefs[Keys.DOUBLE_TAP_LOCK] = config.doubleTapToLock
             prefs[Keys.LOCK_SECURITY_MODE] = config.lockSecurityMode.name
             prefs[Keys.LOCK_PASSCODE_HASH] = config.lockPasscodeHash
@@ -296,13 +394,16 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.SIDEBAR_OPACITY] = config.sidebarGlassOpacity
             prefs[Keys.SIDEBAR_ITEMS] = encodeSidebarItems(config.sidebarItems)
             prefs[Keys.AMBIENT_GLOW] = config.ambientGlowIntensity
-            prefs[Keys.WALLPAPER] = config.wallpaperPreset.name
+            prefs[Keys.WALLPAPER] = config.wallpaperConfig.preset.name
+            prefs[Keys.WP_HOME_V2] = encodeWallpaperConfig(config.wallpaperConfig)
+            prefs[Keys.WP_SEPARATE_LOCK] = config.separateLockWallpaper
+            prefs[Keys.WP_LOCK_V2] = encodeWallpaperConfig(config.lockWallpaperConfig)
         }
     }
 
     private fun encodeModulesV2(modules: List<QuickModuleConfig>): String =
         modules.joinToString("|") {
-            "${it.type.name}:${it.enabled}:${"%.2f".format(java.util.Locale.US, it.widthPercent)}:${it.heightDp}"
+            "${it.type.name}:${it.enabled}:${"%.2f".format(Locale.US, it.widthPercent)}:${it.heightDp}"
         }
 
     private fun decodeModulesV2(raw: String): List<QuickModuleConfig>? {
@@ -347,14 +448,17 @@ class LauncherPreferencesRepository(private val context: Context) {
             val builtIn = w.builtInType?.name.orEmpty()
             val awId = w.appWidgetId?.toString().orEmpty()
             val safeLabel = w.label.replace("|", " ").replace("~", " ")
-            "$safeId~${w.pageIndex}~$builtIn~$awId~$safeLabel~${w.heightDp}"
+            val widthStr = "%.2f".format(Locale.US, w.widthPercent)
+            val xStr = "%.1f".format(Locale.US, w.xOffsetDp)
+            val yStr = "%.1f".format(Locale.US, w.yOffsetDp)
+            "$safeId~${w.pageIndex}~$builtIn~$awId~$safeLabel~${w.heightDp}~$widthStr~$xStr~$yStr"
         }
 
     private fun decodeHomeWidgets(raw: String): List<HomeWidgetPlacement>? {
         if (raw.isBlank()) return emptyList()
-        val parsed = raw.split("|").mapNotNull { entry ->
+        return raw.split("|").mapNotNull { entry ->
             val parts = entry.split("~")
-            if (parts.size != 6) return@mapNotNull null
+            if (parts.size < 6) return@mapNotNull null
             val id = parts[0].ifBlank { return@mapNotNull null }
             val pageIdx = parts[1].toIntOrNull()?.coerceIn(0, 6) ?: 0
             val builtIn = parts[2].takeIf { it.isNotBlank() }?.let {
@@ -363,10 +467,67 @@ class LauncherPreferencesRepository(private val context: Context) {
             val appWidgetId = parts[3].toIntOrNull()
             if (builtIn == null && appWidgetId == null) return@mapNotNull null
             val label = parts[4]
-            val heightDp = parts[5].toIntOrNull()?.coerceIn(96, 420) ?: 148
-            HomeWidgetPlacement(id, pageIdx, builtIn, appWidgetId, label, heightDp)
+            val heightDp = parts[5].toIntOrNull()?.coerceIn(72, 420) ?: 148
+            val widthPct = parts.getOrNull(6)?.toFloatOrNull()?.coerceIn(0.44f, 1.0f) ?: 1.0f
+            val xOff = parts.getOrNull(7)?.toFloatOrNull()?.coerceIn(-120f, 120f) ?: 0f
+            val yOff = parts.getOrNull(8)?.toFloatOrNull()?.coerceIn(-120f, 240f) ?: 0f
+            HomeWidgetPlacement(id, pageIdx, builtIn, appWidgetId, label, widthPct, heightDp, xOff, yOff)
         }
-        return parsed
+    }
+
+    private fun encodeCustomSounds(sounds: List<CustomNotificationSound>): String =
+        sounds.joinToString("|") { s ->
+            val safeId = s.id.replace("|", "_").replace("~", "_")
+            val safeName = s.name.replace("|", " ").replace("~", " ")
+            val safeUri = s.uriString.replace("|", "%7C").replace("~", "%7E")
+            "$safeId~$safeName~$safeUri"
+        }
+
+    private fun decodeCustomSounds(raw: String): List<CustomNotificationSound> {
+        if (raw.isBlank()) return emptyList()
+        return raw.split("|").mapNotNull { entry ->
+            val parts = entry.split("~")
+            if (parts.size != 3) return@mapNotNull null
+            val id = parts[0].ifBlank { return@mapNotNull null }
+            val name = parts[1].ifBlank { "Suara Kustom" }
+            val uri = parts[2].ifBlank { return@mapNotNull null }
+            CustomNotificationSound(id, name, uri)
+        }
+    }
+
+    private fun encodeWallpaperConfig(wp: WallpaperConfig): String {
+        val safePath = wp.customImagePath.replace("|", "%7C").replace("~", "%7E")
+        return listOf(
+            wp.preset.name,
+            safePath,
+            wp.glassStyle.name,
+            "%.2f".format(Locale.US, wp.glassIntensity),
+            "%.1f".format(Locale.US, wp.blurRadiusDp),
+            "%.2f".format(Locale.US, wp.dimAlpha),
+            wp.particleOverlay.name,
+            wp.colorTone.name,
+            wp.parallaxEnabled.toString(),
+            "%.2f".format(Locale.US, wp.parallaxStrength),
+            "%.2f".format(Locale.US, wp.liveSpeed)
+        ).joinToString("~")
+    }
+
+    private fun decodeWallpaperConfig(raw: String, fallback: WallpaperConfig): WallpaperConfig {
+        val parts = raw.split("~")
+        if (parts.size < 11) return fallback
+        return WallpaperConfig(
+            preset = parts[0].toEnumOrDefault(fallback.preset),
+            customImagePath = parts[1].replace("%7C", "|").replace("%7E", "~"),
+            glassStyle = parts[2].toEnumOrDefault(fallback.glassStyle),
+            glassIntensity = parts[3].toFloatOrNull()?.coerceIn(0f, 1f) ?: fallback.glassIntensity,
+            blurRadiusDp = parts[4].toFloatOrNull()?.coerceIn(0f, 24f) ?: fallback.blurRadiusDp,
+            dimAlpha = parts[5].toFloatOrNull()?.coerceIn(0f, 0.70f) ?: fallback.dimAlpha,
+            particleOverlay = parts[6].toEnumOrDefault(fallback.particleOverlay),
+            colorTone = parts[7].toEnumOrDefault(fallback.colorTone),
+            parallaxEnabled = parts[8].toBooleanStrictOrNull() ?: fallback.parallaxEnabled,
+            parallaxStrength = parts[9].toFloatOrNull()?.coerceIn(0f, 1f) ?: fallback.parallaxStrength,
+            liveSpeed = parts[10].toFloatOrNull()?.coerceIn(0.3f, 2.0f) ?: fallback.liveSpeed
+        )
     }
 
     private inline fun <reified T : Enum<T>> String?.toEnumOrDefault(default: T): T =

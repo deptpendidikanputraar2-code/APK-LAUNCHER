@@ -176,32 +176,11 @@ fun AppDrawerOverlay(
                     }
                 }
 
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text(
-                            text = stringResource(R.string.search_apps_hint),
-                            color = VitroTextSecondary
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Rounded.Search,
-                            contentDescription = null,
-                            tint = VitroCyanAccent
-                        )
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(22.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VitroCyanAccent,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.08f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
-                        focusedTextColor = VitroTextPrimary,
-                        unfocusedTextColor = VitroTextPrimary
-                    ),
+                com.example.launcher.ui.components.VitroCustomizableSearchBar(
+                    searchConfig = config.searchBar,
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = stringResource(R.string.search_apps_hint),
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("drawer_search_input")

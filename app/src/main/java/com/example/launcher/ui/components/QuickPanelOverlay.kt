@@ -1,5 +1,6 @@
 package com.example.launcher.ui.components
 
+import android.media.AudioManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.spring
@@ -7,8 +8,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -34,15 +39,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.AirplanemodeActive
 import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DoNotDisturbOn
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.NotificationsOff
+import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -51,6 +62,9 @@ import androidx.compose.material.icons.rounded.Screenshot
 import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.Vibration
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material.icons.rounded.Wifi
@@ -64,6 +78,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,13 +88,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.example.R
+import androidx.compose.ui.unit.sp
 import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.NowPlayingInfo
@@ -94,11 +108,12 @@ import com.example.ui.theme.VitroIndigo
 import com.example.ui.theme.VitroMint
 import com.example.ui.theme.VitroTextPrimary
 import com.example.ui.theme.VitroTextSecondary
+import kotlin.math.roundToInt
 
 /**
- * Pure iPhone-Glass Control Center (Pusat Kontrol).
- * Strictly contains ONLY device controls — ZERO settings or Studio buttons inside the panel.
- * Every module's width (23%..100%) and height (56..220dp) is freely configurable inside Studio Vitro.
+ * Pure iPhone 18 Pro Max Glass Control Center (Pusat Kontrol).
+ * - Direct instant module toggling without redirecting out to Android Settings (long-press for detail settings).
+ * - Live in-panel Horizontal/Vertical switch and live DIY corner drag resize & reorder right when opened.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -108,8 +123,13 @@ fun QuickPanelOverlay(
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
     nowPlaying: NowPlayingInfo,
+    feedbackToast: String? = null,
     onDismiss: () -> Unit,
     onModuleClick: (QuickModuleType) -> Unit,
+    onModuleLongPress: (QuickModuleType) -> Unit = {},
+    onToggleOrientation: () -> Unit = {},
+    onUpdateModuleSize: (QuickModuleType, Float, Int) -> Unit = { _, _, _ -> },
+    onMoveModule: (QuickModuleType, Boolean) -> Unit = { _, _ -> },
     onBrightnessChange: (Float) -> Unit,
     onVolumeChange: (Float) -> Unit,
     onMediaPlayPause: () -> Unit,
@@ -117,6 +137,7 @@ fun QuickPanelOverlay(
     onMediaPrev: () -> Unit
 ) {
     var dismissDragSum by remember { mutableFloatStateOf(0f) }
+    var isEditLayoutMode by remember(visible) { mutableStateOf(false) }
 
     AnimatedVisibility(
         visible = visible,
@@ -128,7 +149,9 @@ fun QuickPanelOverlay(
         ) { -it / 4 },
         exit = fadeOut() + slideOutVertically { -it / 4 }
     ) {
-        BackHandler(onBack = onDismiss)
+        BackHandler {
+            if (isEditLayoutMode) isEditLayoutMode = false else onDismiss()
+        }
 
         val safeTopModifier = if (config.hideSystemStatusBar) {
             Modifier.displayCutoutPadding().padding(top = 8.dp)
@@ -139,11 +162,13 @@ fun QuickPanelOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xD8040814))
+                .background(Color(0xDC040814))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = onDismiss
+                    onClick = {
+                        if (isEditLayoutMode) isEditLayoutMode = false else onDismiss()
+                    }
                 )
                 .then(safeTopModifier)
                 .navigationBarsPadding(),
@@ -158,163 +183,219 @@ fun QuickPanelOverlay(
                         indication = null,
                         onClick = {}
                     )
-                    .verticalScroll(rememberScrollState())
+                    .pointerInput(isEditLayoutMode) {
+                        if (!isEditLayoutMode) {
+                            detectVerticalDragGestures(
+                                onDragEnd = {
+                                    if (dismissDragSum < -90f) onDismiss()
+                                    dismissDragSum = 0f
+                                },
+                                onDragCancel = { dismissDragSum = 0f },
+                                onVerticalDrag = { _, dragAmount ->
+                                    if (dragAmount < 0) dismissDragSum += dragAmount
+                                }
+                            )
+                        }
+                    }
                     .padding(horizontal = 18.dp, vertical = 10.dp)
+                    .verticalScroll(rememberScrollState())
                     .testTag("quick_panel_overlay"),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Clean Control Center Header (Live Status + Close only, zero settings clutter)
+                // Header: Live Telemetry + Direct Horizontal/Vertical Toggle + Live DIY Resize Toggle + Close
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = telemetry.timeText,
-                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.SemiBold),
-                            color = VitroTextPrimary
+                            text = if (isEditLayoutMode) "Atur Modul Langsung" else telemetry.timeText,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isEditLayoutMode) VitroCyanAccent else VitroTextPrimary
                         )
                         Text(
-                            text = "${telemetry.dateText} • ${telemetry.networkLabel} • ${telemetry.batteryPercent}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = VitroCyanAccent
+                            text = if (isEditLayoutMode) {
+                                "Seret sudut kanan bawah modul untuk ubah ukuran"
+                            } else {
+                                "${telemetry.dateText} • ${telemetry.batteryPercent}% • ${telemetry.networkLabel}"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VitroTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
-                    VitroGlassContainer(
-                        cornerRadius = 50.dp,
-                        glassOpacity = 0.24f,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .testTag("quick_panel_close_button")
-                            .bouncyClickable(onClick = onDismiss)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(R.string.cd_close),
-                            tint = VitroTextPrimary,
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-                }
 
-                val enabledModules = config.quickModules.filter { it.enabled }
-
-                if (config.quickPanelOrientation == QuickPanelOrientation.VERTICAL_IOS) {
-                    // iPhone Glass Layout: Freely-Sized Module Grid + Vertical Glass Capsule Sliders
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.Top
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FlowRow(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        // Direct Orientation Switcher (Horizontal <-> Vertical right inside panel)
+                        val isHoriz = config.quickPanelOrientation == QuickPanelOrientation.HORIZONTAL_STRIP
+                        Box(
+                            modifier = Modifier
+                                .height(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isHoriz) VitroCyanAccent.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.12f)
+                                )
+                                .border(
+                                    0.8.dp,
+                                    if (isHoriz) VitroCyanAccent.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.18f),
+                                    CircleShape
+                                )
+                                .clickable(onClick = onToggleOrientation)
+                                .padding(horizontal = 11.dp)
+                                .testTag("quick_panel_orientation_toggle"),
+                            contentAlignment = Alignment.Center
                         ) {
-                            enabledModules.forEach { mod ->
-                                // Respect free user widthPercent & heightDp
-                                val adjustedFraction = mod.widthPercent.coerceIn(0.28f, 1.0f).let { raw ->
-                                    if (raw >= 0.88f) 1f else (raw - 0.03f).coerceAtLeast(0.28f)
-                                }
-                                QuickPanelModuleTile(
-                                    module = mod,
-                                    telemetry = telemetry,
-                                    glassOpacity = config.quickPanelGlassOpacity,
-                                    onClick = { onModuleClick(mod.type) },
-                                    modifier = Modifier
-                                        .fillMaxWidth(adjustedFraction)
-                                        .height(mod.heightDp.coerceIn(56, 220).dp)
-                                )
-                            }
-                        }
-
-                        if (config.showBrightnessSlider || config.showVolumeSlider) {
-                            val sliderH = config.sliderHeightDp.coerceIn(100, 220).dp
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (config.showBrightnessSlider) {
-                                    VerticalGlassCapsuleSlider(
-                                        value = telemetry.brightnessFraction,
-                                        onValueChange = onBrightnessChange,
-                                        icon = Icons.Rounded.WbSunny,
-                                        label = "Cahaya",
-                                        accent = VitroAmber,
-                                        glassOpacity = config.quickPanelGlassOpacity,
-                                        height = sliderH,
-                                        testTag = "qp_brightness_slider"
-                                    )
-                                }
-                                if (config.showVolumeSlider) {
-                                    VerticalGlassCapsuleSlider(
-                                        value = telemetry.volumeFraction,
-                                        onValueChange = onVolumeChange,
-                                        icon = Icons.Rounded.VolumeUp,
-                                        label = "Suara",
-                                        accent = VitroCyanAccent,
-                                        glassOpacity = config.quickPanelGlassOpacity,
-                                        height = sliderH,
-                                        testTag = "qp_volume_slider"
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // HORIZONTAL STRIP MODE: Wide glass sliders + freely sized flowing modules
-                    if (config.showBrightnessSlider || config.showVolumeSlider) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (config.showBrightnessSlider) {
-                                HorizontalGlassSliderCard(
-                                    label = "Kecerahan Layar",
-                                    value = telemetry.brightnessFraction,
-                                    icon = Icons.Rounded.WbSunny,
-                                    accent = VitroAmber,
-                                    glassOpacity = config.quickPanelGlassOpacity,
-                                    onValueChange = onBrightnessChange
+                                Icon(
+                                    imageVector = if (isHoriz) Icons.Rounded.SwapHoriz else Icons.Rounded.SwapVert,
+                                    contentDescription = "Ubah Orientasi",
+                                    tint = if (isHoriz) VitroCyanAccent else VitroTextPrimary,
+                                    modifier = Modifier.size(16.dp)
                                 )
-                            }
-                            if (config.showVolumeSlider) {
-                                HorizontalGlassSliderCard(
-                                    label = "Volume Media",
-                                    value = telemetry.volumeFraction,
-                                    icon = Icons.Rounded.VolumeUp,
-                                    accent = VitroCyanAccent,
-                                    glassOpacity = config.quickPanelGlassOpacity,
-                                    onValueChange = onVolumeChange
+                                Text(
+                                    text = if (isHoriz) "Horiz" else "Vert",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isHoriz) VitroCyanAccent else VitroTextPrimary
                                 )
                             }
                         }
-                    }
 
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        enabledModules.forEach { mod ->
-                            val adjustedFraction = mod.widthPercent.coerceIn(0.23f, 1.0f).let { raw ->
-                                if (raw >= 0.90f) 1f else (raw - 0.025f).coerceAtLeast(0.22f)
-                            }
-                            QuickPanelModuleTile(
-                                module = mod,
-                                telemetry = telemetry,
-                                glassOpacity = config.quickPanelGlassOpacity,
-                                onClick = { onModuleClick(mod.type) },
-                                modifier = Modifier
-                                    .fillMaxWidth(adjustedFraction)
-                                    .height(mod.heightDp.coerceIn(56, 220).dp)
+                        // Direct DIY Module Resize Toggle
+                        IconButton(
+                            onClick = { isEditLayoutMode = !isEditLayoutMode },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isEditLayoutMode) VitroCyanAccent else Color.White.copy(alpha = 0.12f)
+                                )
+                                .testTag("quick_panel_edit_toggle")
+                        ) {
+                            Icon(
+                                imageVector = if (isEditLayoutMode) Icons.Rounded.Check else Icons.Rounded.Edit,
+                                contentDescription = if (isEditLayoutMode) "Selesai Atur" else "Atur Ukuran Modul",
+                                tint = if (isEditLayoutMode) Color(0xFF040814) else VitroTextPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onDismiss,
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.12f))
+                                .testTag("close_quick_panel_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Tutup Pusat Kontrol",
+                                tint = VitroTextPrimary,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
 
-                // Real Synced Media Player Pill
+                // Instant Direct Action Feedback Pill
+                AnimatedVisibility(
+                    visible = !feedbackToast.isNullOrBlank(),
+                    enter = fadeIn() + slideInVertically { -it / 2 },
+                    exit = fadeOut()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(VitroCyanAccent.copy(alpha = 0.18f))
+                            .border(0.9.dp, VitroCyanAccent.copy(alpha = 0.55f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = feedbackToast.orEmpty(),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = VitroTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                val activeModules = remember(config.quickModules) {
+                    config.quickModules.filter { it.enabled }
+                }
+
+                if (config.quickPanelOrientation == QuickPanelOrientation.VERTICAL_IOS) {
+                    if (config.showBrightnessSlider || config.showVolumeSlider) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            if (config.showBrightnessSlider) {
+                                VerticalGlassSlider(
+                                    label = "Cahaya",
+                                    value = telemetry.brightnessFraction,
+                                    onValueChange = onBrightnessChange,
+                                    icon = Icons.Rounded.WbSunny,
+                                    accentColor = VitroAmber,
+                                    glassOpacity = config.quickPanelGlassOpacity,
+                                    heightDp = config.sliderHeightDp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            if (config.showVolumeSlider) {
+                                VerticalGlassSlider(
+                                    label = "Volume",
+                                    value = telemetry.volumeFraction,
+                                    onValueChange = onVolumeChange,
+                                    icon = Icons.Rounded.VolumeUp,
+                                    accentColor = VitroCyanAccent,
+                                    glassOpacity = config.quickPanelGlassOpacity,
+                                    heightDp = config.sliderHeightDp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    if (config.showBrightnessSlider) {
+                        HorizontalGlassSlider(
+                            label = "Kecerahan Layar",
+                            value = telemetry.brightnessFraction,
+                            onValueChange = onBrightnessChange,
+                            icon = Icons.Rounded.WbSunny,
+                            accentColor = VitroAmber,
+                            glassOpacity = config.quickPanelGlassOpacity
+                        )
+                    }
+                    if (config.showVolumeSlider) {
+                        HorizontalGlassSlider(
+                            label = "Volume Media",
+                            value = telemetry.volumeFraction,
+                            onValueChange = onVolumeChange,
+                            icon = Icons.Rounded.VolumeUp,
+                            accentColor = VitroCyanAccent,
+                            glassOpacity = config.quickPanelGlassOpacity
+                        )
+                    }
+                }
+
+                // Live Media Control Card
                 if (config.showMediaControl) {
                     VitroGlassContainer(
-                        cornerRadius = 26.dp,
+                        cornerRadius = 24.dp,
                         glassOpacity = config.quickPanelGlassOpacity,
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -323,90 +404,101 @@ fun QuickPanelOverlay(
                                 .fillMaxWidth()
                                 .padding(horizontal = 14.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.weight(1f)
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(
+                                        Brush.linearGradient(listOf(VitroCyanAccent, VitroIndigo, Color(0xFFEC4899)))
+                                    ),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                            Brush.linearGradient(listOf(VitroCyanAccent, VitroIndigo))
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.MusicNote,
-                                        contentDescription = "Media",
-                                        tint = Color.White
-                                    )
-                                }
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = nowPlaying.title.ifBlank {
-                                            if (overlays.isMediaPlaying) "Audio Sedang Diputar" else "Pemutar Media HP"
-                                        },
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = VitroTextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = nowPlaying.artist.ifBlank {
-                                            nowPlaying.appName.ifBlank { "Tersinkron dengan audio sistem" }
-                                        },
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = VitroTextSecondary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Rounded.MusicNote,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
                             }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = onMediaPrev, modifier = Modifier.size(40.dp)) {
-                                    Icon(Icons.Rounded.SkipPrevious, contentDescription = "Sebelumnya", tint = VitroTextPrimary)
-                                }
-                                IconButton(
-                                    onClick = onMediaPlayPause,
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White.copy(alpha = 0.16f))
-                                ) {
-                                    Icon(
-                                        imageVector = if (nowPlaying.isPlaying || overlays.isMediaPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                        contentDescription = "Putar atau jeda",
-                                        tint = VitroTextPrimary
-                                    )
-                                }
-                                IconButton(onClick = onMediaNext, modifier = Modifier.size(40.dp)) {
-                                    Icon(Icons.Rounded.SkipNext, contentDescription = "Berikutnya", tint = VitroTextPrimary)
-                                }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = nowPlaying.title.ifBlank { "Pemutar Media" },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = VitroTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = nowPlaying.artist.ifBlank {
+                                        nowPlaying.appName.ifBlank { "Ketuk putar untuk sinkron musik HP" }
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = VitroTextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(onClick = onMediaPrev, modifier = Modifier.size(34.dp)) {
+                                Icon(Icons.Rounded.SkipPrevious, contentDescription = "Sebelumnya", tint = VitroTextPrimary)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.18f))
+                                    .clickable(onClick = onMediaPlayPause),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (nowPlaying.isPlaying || overlays.isMediaPlaying) {
+                                        Icons.Rounded.Pause
+                                    } else {
+                                        Icons.Rounded.PlayArrow
+                                    },
+                                    contentDescription = "Putar atau jeda",
+                                    tint = VitroTextPrimary
+                                )
+                            }
+                            IconButton(onClick = onMediaNext, modifier = Modifier.size(34.dp)) {
+                                Icon(Icons.Rounded.SkipNext, contentDescription = "Berikutnya", tint = VitroTextPrimary)
                             }
                         }
                     }
                 }
 
-                // Bottom Swipe-Up Dismiss Handle
+                // Free-Sized Interactive Modules Grid (directly resizable in-place when Edit Mode is ON!)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    activeModules.forEachIndexed { idx, mod ->
+                        FreeSizedQuickModuleTile(
+                            module = mod,
+                            telemetry = telemetry,
+                            glassOpacity = config.quickPanelGlassOpacity,
+                            isEditMode = isEditLayoutMode,
+                            canMoveLeft = idx > 0,
+                            canMoveRight = idx < activeModules.lastIndex,
+                            onClick = { onModuleClick(mod.type) },
+                            onLongPress = { onModuleLongPress(mod.type) },
+                            onLiveResize = { newWidth, newHeight ->
+                                onUpdateModuleSize(mod.type, newWidth, newHeight)
+                            },
+                            onMoveLeft = { onMoveModule(mod.type, true) },
+                            onMoveRight = { onMoveModule(mod.type, false) }
+                        )
+                    }
+                }
+
+                // Bottom pill indicator for swipe-up dismiss
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(36.dp)
-                        .pointerInput(Unit) {
-                            detectVerticalDragGestures(
-                                onDragStart = { dismissDragSum = 0f },
-                                onVerticalDrag = { _, dragAmount -> dismissDragSum += dragAmount },
-                                onDragEnd = {
-                                    if (dismissDragSum < -40f) onDismiss()
-                                    dismissDragSum = 0f
-                                }
-                            )
-                        }
-                        .clickable(onClick = onDismiss),
+                        .padding(top = 6.dp, bottom = 14.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Box(
@@ -414,7 +506,8 @@ fun QuickPanelOverlay(
                             .width(48.dp)
                             .height(5.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.42f))
+                            .background(Color.White.copy(alpha = 0.35f))
+                            .clickable(onClick = onDismiss)
                     )
                 }
             }
@@ -422,214 +515,417 @@ fun QuickPanelOverlay(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QuickPanelModuleTile(
+private fun FreeSizedQuickModuleTile(
     module: QuickModuleConfig,
     telemetry: DeviceTelemetry,
     glassOpacity: Float,
+    isEditMode: Boolean,
+    canMoveLeft: Boolean,
+    canMoveRight: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    onLongPress: () -> Unit,
+    onLiveResize: (Float, Int) -> Unit,
+    onMoveLeft: () -> Unit,
+    onMoveRight: () -> Unit
 ) {
-    val (icon, isActive, activeColor) = when (module.type) {
-        QuickModuleType.WIFI -> Triple(Icons.Rounded.Wifi, telemetry.isWifiConnected, VitroCyanAccent)
-        QuickModuleType.CELLULAR -> Triple(Icons.Rounded.SignalCellularAlt, telemetry.isCellularConnected, VitroMint)
-        QuickModuleType.BLUETOOTH -> Triple(Icons.Rounded.Bluetooth, telemetry.isBluetoothOn, Color(0xFF3B82F6))
-        QuickModuleType.FLASHLIGHT -> Triple(Icons.Rounded.FlashlightOn, telemetry.isFlashlightOn, VitroAmber)
-        QuickModuleType.DND -> Triple(Icons.Rounded.DoNotDisturbOn, telemetry.isDndEnabled, VitroIndigo)
-        QuickModuleType.ROTATION -> Triple(Icons.Rounded.ScreenRotation, telemetry.isAutoRotateEnabled, VitroCyanAccent)
-        QuickModuleType.AIRPLANE -> Triple(Icons.Rounded.AirplanemodeActive, telemetry.isAirplaneModeOn, VitroAmber)
-        QuickModuleType.HOTSPOT -> Triple(Icons.Rounded.WifiTethering, false, VitroMint)
-        QuickModuleType.LOCATION -> Triple(Icons.Rounded.LocationOn, telemetry.isLocationEnabled, VitroCyanAccent)
-        QuickModuleType.BATTERY_SAVER -> Triple(Icons.Rounded.BatterySaver, telemetry.isPowerSaveMode, VitroCoral)
-        QuickModuleType.SCREENSHOT -> Triple(Icons.Rounded.Screenshot, false, VitroCyanAccent)
-        QuickModuleType.CAMERA -> Triple(Icons.Rounded.PhotoCamera, false, VitroIndigo)
-        QuickModuleType.LOCK_SCREEN -> Triple(Icons.Rounded.Lock, false, Color(0xFF94A3B8))
-    }
+    val density = LocalDensity.current
+    val (icon, active, accent, subtitle) = resolveQuickModuleVisuals(module.type, telemetry)
+    val clampedWidth = module.widthPercent.coerceIn(0.23f, 1.0f)
+    val clampedHeight = module.heightDp.coerceIn(56, 220)
 
-    val isWide = module.widthPercent >= 0.46f
-    val isTall = module.heightDp >= 115
+    var dragWidth by remember(module.widthPercent) { mutableFloatStateOf(clampedWidth) }
+    var dragHeight by remember(module.heightDp) { mutableFloatStateOf(clampedHeight.toFloat()) }
 
-    VitroGlassContainer(
-        cornerRadius = 24.dp,
-        tintColor = if (isActive) activeColor else Color.White,
-        glassOpacity = if (isActive) (glassOpacity + 0.16f).coerceAtMost(0.65f) else glassOpacity,
-        borderColor = if (isActive) activeColor.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.32f),
-        modifier = modifier
-            .testTag("qp_module_${module.type.name.lowercase()}")
-            .bouncyClickable(onClick = onClick)
+    val activeWidth = if (isEditMode) dragWidth else clampedWidth
+    val activeHeight = if (isEditMode) dragHeight.roundToInt() else clampedHeight
+    val isCompactSquare = activeWidth < 0.36f && activeHeight < 110
+    val isTallCard = activeHeight >= 120
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth(activeWidth.coerceIn(0.23f, 0.99f))
+            .height(activeHeight.dp)
     ) {
-        when {
-            isWide && !isTall -> {
-                Row(
+        VitroGlassContainer(
+            cornerRadius = 22.dp,
+            glassOpacity = if (active) (glassOpacity + 0.14f).coerceAtMost(0.55f) else glassOpacity,
+            tintColor = if (active) accent else Color.White,
+            borderColor = when {
+                isEditMode -> VitroCyanAccent.copy(alpha = 0.9f)
+                active -> accent.copy(alpha = 0.72f)
+                else -> Color.White.copy(alpha = 0.24f)
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .combinedClickable(
+                    onClick = { if (!isEditMode) onClick() },
+                    onLongClick = { if (!isEditMode) onLongPress() }
+                )
+                .testTag("quick_module_${module.type.name.lowercase()}")
+        ) {
+            if (isCompactSquare) {
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(if (isActive) activeColor else Color.White.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = module.type.label,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = module.type.label,
+                        tint = if (active) Color.White else VitroTextPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    if (activeHeight >= 70) {
+                        Spacer(Modifier.height(3.dp))
                         Text(
                             text = module.type.label,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
                             color = VitroTextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = if (isActive) "Aktif" else "Ketuk",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = VitroTextSecondary
-                        )
                     }
                 }
-            }
-
-            isTall -> {
+            } else if (isTallCard) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(14.dp),
                     verticalArrangement = Arrangement.SpaceBetween,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    horizontalAlignment = Alignment.Start
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
-                            .background(if (isActive) activeColor else Color.White.copy(alpha = 0.16f)),
+                            .background(if (active) accent.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = icon,
                             contentDescription = module.type.label,
                             tint = Color.White,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(21.dp)
                         )
                     }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column {
                         Text(
                             text = module.type.label,
-                            style = MaterialTheme.typography.labelLarge,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
                             color = VitroTextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = if (isActive) "Aktif" else "Mati",
+                            text = subtitle,
                             style = MaterialTheme.typography.labelSmall,
-                            color = VitroTextSecondary
+                            color = if (active) Color.White.copy(alpha = 0.9f) else VitroTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (active) accent.copy(alpha = 0.85f) else Color.White.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = module.type.label,
+                            tint = Color.White,
+                            modifier = Modifier.size(19.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = module.type.label,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = VitroTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) Color.White.copy(alpha = 0.9f) else VitroTextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+
+        // Live In-Panel DIY Controls (reorder arrows + bottom-right live drag resize handle)
+        if (isEditMode) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (canMoveLeft) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xDD0B132B))
+                            .clickable(onClick = onMoveLeft),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Geser Kiri",
+                            tint = VitroCyanAccent,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+                if (canMoveRight) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xDD0B132B))
+                            .clickable(onClick = onMoveRight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Rounded.ArrowForward,
+                            contentDescription = "Geser Kanan",
+                            tint = VitroCyanAccent,
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
             }
 
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(6.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = module.type.label,
-                        tint = Color.White,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = module.type.label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VitroTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            // Live Corner Drag Resize Handle
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(3.dp)
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(VitroCyanAccent)
+                    .pointerInput(module.type) {
+                        detectDragGestures(
+                            onDragEnd = {
+                                onLiveResize(dragWidth, dragHeight.roundToInt())
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                val dxDp = with(density) { dragAmount.x.toDp().value }
+                                val dyDp = with(density) { dragAmount.y.toDp().value }
+                                dragWidth = (dragWidth + dxDp / 340f).coerceIn(0.23f, 1.0f)
+                                dragHeight = (dragHeight + dyDp).coerceIn(56f, 220f)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.OpenWith,
+                    contentDescription = "Seret Ubah Ukuran",
+                    tint = Color(0xFF040814),
+                    modifier = Modifier.size(14.dp)
+                )
             }
         }
     }
 }
 
+private data class QuickModuleVisual(
+    val icon: ImageVector,
+    val active: Boolean,
+    val accent: Color,
+    val subtitle: String
+)
+
+private fun resolveQuickModuleVisuals(
+    type: QuickModuleType,
+    telemetry: DeviceTelemetry
+): QuickModuleVisual = when (type) {
+    QuickModuleType.WIFI -> QuickModuleVisual(
+        Icons.Rounded.Wifi,
+        telemetry.isWifiConnected,
+        VitroCyanAccent,
+        if (telemetry.isWifiConnected) "Terhubung" else "Nonaktif"
+    )
+    QuickModuleType.CELLULAR -> QuickModuleVisual(
+        Icons.Rounded.SignalCellularAlt,
+        telemetry.isCellularConnected,
+        VitroMint,
+        if (telemetry.isCellularConnected) "Aktif" else "Mati"
+    )
+    QuickModuleType.BLUETOOTH -> QuickModuleVisual(
+        Icons.Rounded.Bluetooth,
+        telemetry.isBluetoothOn,
+        VitroIndigo,
+        if (telemetry.isBluetoothOn) "Aktif" else "Nonaktif"
+    )
+    QuickModuleType.FLASHLIGHT -> QuickModuleVisual(
+        Icons.Rounded.FlashlightOn,
+        telemetry.isFlashlightOn,
+        VitroAmber,
+        if (telemetry.isFlashlightOn) "Menyala" else "Mati"
+    )
+    QuickModuleType.DND -> QuickModuleVisual(
+        Icons.Rounded.DoNotDisturbOn,
+        telemetry.isDndEnabled,
+        Color(0xFF8B5CF6),
+        if (telemetry.isDndEnabled) "Aktif" else "Mati"
+    )
+    QuickModuleType.RINGER_MODE -> when (telemetry.ringerMode) {
+        AudioManager.RINGER_MODE_SILENT -> QuickModuleVisual(
+            Icons.Rounded.NotificationsOff,
+            true,
+            VitroCoral,
+            "Hening"
+        )
+        AudioManager.RINGER_MODE_VIBRATE -> QuickModuleVisual(
+            Icons.Rounded.Vibration,
+            true,
+            VitroIndigo,
+            "Getar"
+        )
+        else -> QuickModuleVisual(
+            Icons.Rounded.VolumeUp,
+            true,
+            VitroCyanAccent,
+            "Dering"
+        )
+    }
+    QuickModuleType.ROTATION -> QuickModuleVisual(
+        Icons.Rounded.ScreenRotation,
+        telemetry.isAutoRotateEnabled,
+        VitroCyanAccent,
+        if (telemetry.isAutoRotateEnabled) "Otomatis" else "Terkunci"
+    )
+    QuickModuleType.AIRPLANE -> QuickModuleVisual(
+        Icons.Rounded.AirplanemodeActive,
+        telemetry.isAirplaneModeOn,
+        VitroAmber,
+        if (telemetry.isAirplaneModeOn) "Aktif" else "Mati"
+    )
+    QuickModuleType.HOTSPOT -> QuickModuleVisual(
+        Icons.Rounded.WifiTethering,
+        false,
+        VitroMint,
+        "Ketuk cepat"
+    )
+    QuickModuleType.LOCATION -> QuickModuleVisual(
+        Icons.Rounded.LocationOn,
+        telemetry.isLocationEnabled,
+        VitroCyanAccent,
+        if (telemetry.isLocationEnabled) "GPS Aktif" else "Mati"
+    )
+    QuickModuleType.BATTERY_SAVER -> QuickModuleVisual(
+        Icons.Rounded.BatterySaver,
+        telemetry.isPowerSaveMode,
+        VitroAmber,
+        if (telemetry.isPowerSaveMode) "Aktif" else "${telemetry.batteryPercent}%"
+    )
+    QuickModuleType.SCREENSHOT -> QuickModuleVisual(
+        Icons.Rounded.Screenshot,
+        false,
+        VitroIndigo,
+        "Tangkap layar"
+    )
+    QuickModuleType.CAMERA -> QuickModuleVisual(
+        Icons.Rounded.PhotoCamera,
+        false,
+        VitroCoral,
+        "Buka cepat"
+    )
+    QuickModuleType.LOCK_SCREEN -> QuickModuleVisual(
+        Icons.Rounded.Lock,
+        false,
+        VitroCoral,
+        "Kunci layar"
+    )
+}
+
 @Composable
-private fun VerticalGlassCapsuleSlider(
+private fun VerticalGlassSlider(
+    label: String,
     value: Float,
     onValueChange: (Float) -> Unit,
     icon: ImageVector,
-    label: String,
-    accent: Color,
+    accentColor: Color,
     glassOpacity: Float,
-    height: Dp,
-    testTag: String
+    heightDp: Int,
+    modifier: Modifier = Modifier
 ) {
-    val clamped = value.coerceIn(0.05f, 1f)
     VitroGlassContainer(
         cornerRadius = 26.dp,
         glassOpacity = glassOpacity,
-        modifier = Modifier
-            .width(72.dp)
-            .height(height)
-            .testTag(testTag)
+        modifier = modifier
+            .height(heightDp.coerceIn(100, 220).dp)
             .pointerInput(Unit) {
                 detectVerticalDragGestures { change, dragAmount ->
                     change.consume()
-                    val delta = -dragAmount / size.height.toFloat()
-                    onValueChange((clamped + delta).coerceIn(0.05f, 1f))
+                    val delta = -dragAmount / size.height.coerceAtLeast(1)
+                    onValueChange((value + delta).coerceIn(0.05f, 1f))
                 }
             }
     ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .fillMaxHeight(clamped)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            accent.copy(alpha = 0.85f),
-                            accent.copy(alpha = 0.52f)
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(value.coerceIn(0.05f, 1f))
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                accentColor.copy(alpha = 0.80f),
+                                accentColor.copy(alpha = 0.48f)
+                            )
                         )
                     )
-                )
-        )
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(vertical = 12.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = "${(clamped * 100).toInt()}%",
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                color = VitroTextPrimary
             )
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "${(value * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = VitroTextPrimary
+                )
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
                     tint = Color.White,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(26.dp)
                 )
-                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.9f)
+                    color = VitroTextPrimary
                 )
             }
         }
@@ -637,16 +933,16 @@ private fun VerticalGlassCapsuleSlider(
 }
 
 @Composable
-private fun HorizontalGlassSliderCard(
+private fun HorizontalGlassSlider(
     label: String,
     value: Float,
+    onValueChange: (Float) -> Unit,
     icon: ImageVector,
-    accent: Color,
-    glassOpacity: Float,
-    onValueChange: (Float) -> Unit
+    accentColor: Color,
+    glassOpacity: Float
 ) {
     VitroGlassContainer(
-        cornerRadius = 24.dp,
+        cornerRadius = 22.dp,
         glassOpacity = glassOpacity,
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -660,7 +956,7 @@ private fun HorizontalGlassSliderCard(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = accent,
+                tint = accentColor,
                 modifier = Modifier.size(22.dp)
             )
             Column(modifier = Modifier.weight(1f)) {
@@ -668,23 +964,15 @@ private fun HorizontalGlassSliderCard(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = VitroTextPrimary
-                    )
-                    Text(
-                        text = "${(value * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = accent
-                    )
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = VitroTextPrimary)
+                    Text("${(value * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = accentColor)
                 }
                 Slider(
                     value = value,
                     onValueChange = onValueChange,
                     colors = SliderDefaults.colors(
                         thumbColor = Color.White,
-                        activeTrackColor = accent,
+                        activeTrackColor = accentColor,
                         inactiveTrackColor = Color.White.copy(alpha = 0.2f)
                     )
                 )

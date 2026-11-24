@@ -185,6 +185,9 @@ fun DynamicIslandStudioTab(
             StudioToggleRow("Status Baterai & Pengisian", di.showBattery) { c -> updateDi { it.copy(showBattery = c) } }
             StudioToggleRow("Jam Ringkas", di.showClock) { c -> updateDi { it.copy(showClock = c) } }
             StudioToggleRow("Timer Fokus Aktif", di.showFocusTimer) { c -> updateDi { it.copy(showFocusTimer = c) } }
+            StudioToggleRow("Melebar Otomatis Saat Notifikasi Masuk", di.autoExpandOnNotification) { c -> updateDi { it.copy(autoExpandOnNotification = c) } }
+            StudioToggleRow("Melebar Saat Status Sistem Berubah (Cas/Senter/Suara)", di.autoExpandOnSystemStatus) { c -> updateDi { it.copy(autoExpandOnSystemStatus = c) } }
+            StudioToggleRow("Gelembung Ganda iPhone 18 Pro Max (2 Aktivitas)", di.showDualSplitBubble) { c -> updateDi { it.copy(showDualSplitBubble = c) } }
         }
     }
 }

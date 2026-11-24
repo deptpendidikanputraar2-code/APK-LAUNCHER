@@ -3,7 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission
@@ -55,7 +58,19 @@
             android:taskAffinity=""
             android:theme="@style/Theme.VitroQuickPanelOverlay" />
 
-        <!-- Real Notification Listener for Home Screen, Lock Screen & Dynamic Island -->
+        <!-- Full-Screen Native Lock Screen Replacement Activity -->
+        <activity
+            android:name=".launcher.VitroLockScreenActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:showOnLockScreen="true"
+            android:showWhenLocked="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.MyApplication"
+            android:turnScreenOn="true" />
+
+        <!-- Real Notification Listener for Home Screen, Lock Screen, Dynamic Island & Aesthetic Sounds -->
         <service
             android:name=".launcher.system.VitroNotificationListenerService"
             android:exported="true"

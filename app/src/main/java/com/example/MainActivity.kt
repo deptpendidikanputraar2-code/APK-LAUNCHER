@@ -5,13 +5,16 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
@@ -32,6 +35,7 @@ import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.system.AvailableAndroidWidget
 import com.example.launcher.system.SystemSyncChecker
 import com.example.launcher.ui.components.QuickPanelOverlay
+import com.example.launcher.ui.components.UniversalSearchOverlay
 import com.example.launcher.ui.components.VitroDynamicIsland
 import com.example.launcher.ui.components.VitroPopupOverlay
 import com.example.launcher.ui.components.VitroWallpaperBackdrop
@@ -47,6 +51,7 @@ class MainActivity : ComponentActivity() {
     private val launcherViewModel: LauncherViewModel by viewModels()
 
     private var hideStatusBarPref: Boolean = true
+    private var pendingGalleryForLockScreen: Boolean = false
     private var pendingWidgetId: Int = AppWidgetManager.INVALID_APPWIDGET_ID
     private var pendingWidgetLabel: String = ""
     private var pendingWidgetPage: Int = 0
@@ -81,6 +86,33 @@ class MainActivity : ComponentActivity() {
             launcherViewModel.appWidgetManager.deleteWidgetId(widgetId)
         }
         clearPendingWidget()
+    }
+
+    // Zero-permission SAF Audio Picker so user can add unlimited custom notification sounds
+    private val customAudioPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            val displayName = resolveDisplayName(uri)
+                .substringBeforeLast('.')
+                .ifBlank { "Audio Kustom" }
+            launcherViewModel.addCustomNotificationSound(displayName, uri.toString())
+        }
+    }
+
+    // Zero-permission Android Photo Picker for custom Home & Lock Screen wallpapers
+    private val galleryPhotoPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            launcherViewModel.importGalleryWallpaper(uri, pendingGalleryForLockScreen)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,6 +152,19 @@ class MainActivity : ComponentActivity() {
                     },
                     onRequestAddAndroidWidget = { widget, pageIndex ->
                         startAddAndroidWidgetFlow(widget, pageIndex)
+                    },
+                    onRequestAddCustomSound = {
+                        runCatching {
+                            customAudioPickerLauncher.launch(arrayOf("audio/*"))
+                        }
+                    },
+                    onRequestPickGalleryWallpaper = { isLockScreen ->
+                        pendingGalleryForLockScreen = isLockScreen
+                        runCatching {
+                            galleryPhotoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
                     }
                 )
             }
@@ -144,20 +189,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            applyStatusBarVisibility(hideStatusBarPref)
-        }
+        if (hasFocus) applyStatusBarVisibility(hideStatusBarPref)
     }
 
     private fun applyStatusBarVisibility(hide: Boolean) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (hide) {
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-        }
+        if (hide) controller.hide(WindowInsetsCompat.Type.statusBars())
+        else controller.show(WindowInsetsCompat.Type.statusBars())
+    }
+
+    private fun resolveDisplayName(uri: Uri): String {
+        return runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else null
+            }
+        }.getOrNull() ?: uri.lastPathSegment.orEmpty().substringAfterLast('/')
     }
 
     private fun startAddAndroidWidgetFlow(widget: AvailableAndroidWidget, pageIndex: Int) {
@@ -172,12 +223,7 @@ class MainActivity : ComponentActivity() {
 
         val bound = launcherViewModel.appWidgetManager.bindIfAllowed(allocatedId, widget.providerInfo)
         if (bound) {
-            proceedToConfigureOrCommitWidget(
-                allocatedId,
-                widget.providerInfo,
-                pendingWidgetLabel,
-                pageIndex
-            )
+            proceedToConfigureOrCommitWidget(allocatedId, widget.providerInfo, pendingWidgetLabel, pageIndex)
         } else {
             val bindIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND).apply {
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, allocatedId)
@@ -231,7 +277,9 @@ private fun VitroLauncherRoot(
     onApplyStatusBarMode: (Boolean) -> Unit,
     onApplySystemWallpaperMode: (Boolean) -> Unit,
     onApplyWindowBrightness: (Float) -> Unit,
-    onRequestAddAndroidWidget: (AvailableAndroidWidget, Int) -> Unit
+    onRequestAddAndroidWidget: (AvailableAndroidWidget, Int) -> Unit,
+    onRequestAddCustomSound: () -> Unit,
+    onRequestPickGalleryWallpaper: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -247,8 +295,8 @@ private fun VitroLauncherRoot(
         onApplyStatusBarMode(config.hideSystemStatusBar)
     }
 
-    LaunchedEffect(config.wallpaperPreset) {
-        onApplySystemWallpaperMode(config.wallpaperPreset == WallpaperPreset.SYSTEM_LIVE)
+    LaunchedEffect(config.wallpaperConfig.preset) {
+        onApplySystemWallpaperMode(config.effectiveHomeWallpaper().preset == WallpaperPreset.SYSTEM_LIVE)
     }
 
     LaunchedEffect(telemetry.brightnessFraction) {
@@ -267,16 +315,17 @@ private fun VitroLauncherRoot(
         !overlays.isStudioOpen &&
         !overlays.isQuickPanelOpen &&
         !overlays.isAppDrawerOpen &&
+        !overlays.isUniversalSearchOpen &&
         (!overlays.isLockScreenActive || config.dynamicIsland.showOnLockScreen)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Layer 1: High-res frosted glass wallpaper or real live phone wallpaper backdrop
+        // Layer 1: Modern Live / Liquid Glass / Gallery / Parallax 3D Wallpaper Engine
         VitroWallpaperBackdrop(
-            preset = config.wallpaperPreset,
+            wallpaperConfig = config.effectiveHomeWallpaper(),
             glowIntensity = config.ambientGlowIntensity
         )
 
-        // Layer 2: Responsive Home Screen with customizable Sidebar, Dock, Glass & Android Widgets
+        // Layer 2: Responsive Home Screen with DIY Drag/Resize Widgets, Search Bar, Sidebar & Dock
         HomeScreen(
             config = config,
             installedApps = installedApps,
@@ -292,7 +341,9 @@ private fun VitroLauncherRoot(
             onLongPressApp = viewModel::showAppQuickPopup,
             onOpenQuickPanel = viewModel::openQuickPanel,
             onOpenAppDrawer = viewModel::openAppDrawer,
-            onOpenStudio = viewModel::openStudio,
+            onOpenStudio = { viewModel.openStudio(startOnWallpaper = false) },
+            onOpenWallpaperStudio = { viewModel.openStudio(startOnWallpaper = true) },
+            onOpenUniversalSearch = viewModel::openUniversalSearch,
             onEnterLockScreen = viewModel::enterLockScreen,
             onLockPhoneNow = viewModel::lockPhoneOrVitroScreen,
             onDoubleTapLock = viewModel::handleDoubleTapHomeScreen,
@@ -304,10 +355,26 @@ private fun VitroLauncherRoot(
             onResetFocusTimer = viewModel::resetFocusTimer,
             onOpenNotification = viewModel::openNotification,
             onDismissNotification = viewModel::dismissLiveNotification,
-            onEnableNotificationAccess = { SystemSyncChecker.openNotificationListenerSettings(context) }
+            onEnableNotificationAccess = { SystemSyncChecker.openNotificationListenerSettings(context) },
+            onUpdateHomeWidgetLayout = viewModel::updateHomeWidgetLayout,
+            onMoveHomeWidgetPage = viewModel::moveHomeWidgetPage,
+            onRemoveHomeWidget = viewModel::removeHomeWidget,
+            onUpdateSearchBarLayout = viewModel::updateSearchBarLayout
         )
 
-        // Layer 3: App Drawer Overlay
+        // Layer 3: Universal Glass Search Overlay (Apps + Widgets + Vitro Menus)
+        UniversalSearchOverlay(
+            visible = overlays.isUniversalSearchOpen,
+            config = config,
+            installedApps = installedApps,
+            onDismiss = viewModel::closeUniversalSearch,
+            onLaunchApp = viewModel::launchApp,
+            onOpenStudio = { viewModel.openStudio(startOnWallpaper = false) },
+            onOpenQuickPanel = viewModel::openQuickPanel,
+            onAddBuiltInWidget = { wt -> viewModel.addBuiltInWidgetToPage(wt, 0) }
+        )
+
+        // Layer 4: App Drawer Overlay (uses unified custom Search Bar)
         AppDrawerOverlay(
             visible = overlays.isAppDrawerOpen,
             config = config,
@@ -317,15 +384,20 @@ private fun VitroLauncherRoot(
             onToggleDockPin = viewModel::toggleDockPin
         )
 
-        // Layer 4: Pure iPhone-Glass Control Center (ZERO settings inside)
+        // Layer 5: iPhone-Glass Control Center (direct instant toggles + live Horizontal/Vertical & DIY resize)
         QuickPanelOverlay(
             visible = overlays.isQuickPanelOpen,
             config = config,
             telemetry = telemetry,
             overlays = overlays,
             nowPlaying = nowPlaying,
+            feedbackToast = overlays.quickPanelFeedback,
             onDismiss = viewModel::closeQuickPanel,
             onModuleClick = viewModel::handleQuickModuleClick,
+            onModuleLongPress = viewModel::handleQuickModuleLongPress,
+            onToggleOrientation = viewModel::toggleQuickPanelOrientation,
+            onUpdateModuleSize = viewModel::updateQuickModuleSize,
+            onMoveModule = viewModel::moveQuickModule,
             onBrightnessChange = viewModel::setBrightness,
             onVolumeChange = viewModel::setVolume,
             onMediaPlayPause = viewModel::mediaPlayPause,
@@ -333,16 +405,20 @@ private fun VitroLauncherRoot(
             onMediaPrev = viewModel::mediaPrevious
         )
 
-        // Layer 5: Multi-page Lock Screen with Real Notifications & PIN / Password Security
+        // Layer 6: Multi-page Lock Screen with Adaptive Clock DIY, Lock Widgets DIY, Notifications & PIN/Password
         LockScreenOverlay(
             visible = overlays.isLockScreenActive,
             config = config,
             telemetry = telemetry,
+            overlays = overlays,
+            nowPlaying = nowPlaying,
+            installedApps = installedApps,
             notifications = notifications,
             isNotificationAccessEnabled = syncStatus.isNotificationListenerEnabled,
             onUnlock = viewModel::unlockScreen,
             onVerifyPasscode = viewModel::verifyLockPasscode,
             onToggleFlashlight = { viewModel.handleQuickModuleClick(QuickModuleType.FLASHLIGHT) },
+            onToggleMedia = viewModel::mediaPlayPause,
             onTriggerLockPopup = { viewModel.triggerSamplePopup(isLockScreen = true) },
             onOpenNotification = viewModel::openNotification,
             onDismissNotification = viewModel::dismissLiveNotification,
@@ -351,18 +427,32 @@ private fun VitroLauncherRoot(
             onOpenStudioFromLock = {
                 viewModel.unlockScreen()
                 viewModel.openStudio()
-            }
+            },
+            onUpdateLockClockLayout = viewModel::updateLockClockLayout,
+            onUpdateLockClockStyle = viewModel::updateLockClockStyle,
+            onUpdateLockClockColor = viewModel::updateLockClockColor,
+            onUpdateLockClockWeight = viewModel::updateLockClockWeight,
+            onAddLockWidget = viewModel::addLockWidget,
+            onUpdateLockWidgetLayout = viewModel::updateLockWidgetLayout,
+            onRemoveLockWidget = viewModel::removeLockWidget
         )
 
-        // Layer 6: Customization Studio Overlay (ALL settings live exclusively here)
+        // Layer 7: Customization Studio Overlay (searchable settings + all 13 tabs including Modern Wallpaper Studio)
         CustomizationStudioOverlay(
             visible = overlays.isStudioOpen,
+            startOnWallpaperTab = overlays.openStudioOnWallpaper,
+            wallpaperFeedback = overlays.wallpaperFeedback,
             config = config,
             installedApps = installedApps,
             availableAndroidWidgets = availableAndroidWidgets,
             syncStatus = syncStatus,
             onDismiss = viewModel::closeStudio,
             onUpdateConfig = viewModel::updateConfig,
+            onUpdateHomeWallpaper = viewModel::updateHomeWallpaper,
+            onUpdateLockWallpaper = viewModel::updateLockWallpaper,
+            onSetSeparateLockWallpaper = viewModel::setSeparateLockWallpaper,
+            onPickGalleryPhoto = onRequestPickGalleryWallpaper,
+            onApplySystemWallpaper = viewModel::applyWallpaperToSystem,
             onRefreshSyncStatus = viewModel::refreshSyncStatus,
             onAddDockApp = viewModel::addAppToDock,
             onRemoveDockApp = viewModel::removeAppFromDock,
@@ -383,6 +473,10 @@ private fun VitroLauncherRoot(
             onAddAppToSidebar = viewModel::addAppToSidebar,
             onRemoveSidebarItem = viewModel::removeSidebarItem,
             onSetLockPasscode = viewModel::setLockPasscode,
+            onSelectNotifSound = viewModel::selectNotificationSound,
+            onPreviewNotifSound = viewModel::previewNotificationSound,
+            onRequestAddCustomSound = onRequestAddCustomSound,
+            onRemoveCustomSound = viewModel::removeCustomNotificationSound,
             onPreviewQuickPanel = viewModel::openQuickPanel,
             onPreviewHomePopup = {
                 viewModel.closeStudio()
@@ -402,7 +496,7 @@ private fun VitroLauncherRoot(
             onResetDefaults = viewModel::resetDefaults
         )
 
-        // Layer 7: Fully Customizable Interactive Dynamic Island
+        // Layer 8: iPhone 18 Pro Max Dynamic Island (dynamically expanding/collapsing)
         if (showDynamicIsland) {
             VitroDynamicIsland(
                 islandConfig = config.dynamicIsland,
@@ -421,7 +515,7 @@ private fun VitroLauncherRoot(
             )
         }
 
-        // Layer 8: Topmost Styled Pop-Up Overlay (live notifications & app quick actions)
+        // Layer 9: Topmost Styled Pop-Up Overlay (live notifications & app quick actions)
         val pinnedTarget = overlays.activePopup?.targetApp?.packageName
         VitroPopupOverlay(
             popup = overlays.activePopup,

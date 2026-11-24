@@ -1,7 +1,10 @@
 package com.example.launcher.system
 
 import android.app.Notification
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
@@ -10,14 +13,21 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.example.launcher.data.LauncherPreferencesRepository
+import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.LiveNotification
 import com.example.launcher.model.NowPlayingInfo
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 
 object NotificationHub {
@@ -79,7 +89,7 @@ object NotificationHub {
         return runCatching {
             val launch = context.packageManager.getLaunchIntentForPackage(notification.packageName)
             if (launch != null) {
-                launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launch)
                 true
             } else false
@@ -94,6 +104,49 @@ object NotificationHub {
 class VitroNotificationListenerService : NotificationListenerService() {
 
     private val iconCache = mutableMapOf<String, ImageBitmap?>()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    @Volatile
+    private var latestConfig: LauncherConfig = LauncherConfig()
+    private var screenReceiverRegistered = false
+
+    private val screenWakeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_ON && latestConfig.replaceSystemLockScreen) {
+                VitroEdgeControlManager.launchVitroLockScreen(applicationContext)
+            }
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        val repo = LauncherPreferencesRepository(applicationContext)
+        serviceScope.launch {
+            repo.configFlow.collect { cfg ->
+                latestConfig = cfg
+                VitroEdgeControlManager.syncEdgeTrigger(
+                    context = applicationContext,
+                    enabled = cfg.replaceSystemControlPanel,
+                    zone = cfg.edgeTriggerZone
+                )
+            }
+        }
+        runCatching {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            registerReceiver(screenWakeReceiver, filter)
+            screenReceiverRegistered = true
+        }
+    }
+
+    override fun onDestroy() {
+        if (screenReceiverRegistered) {
+            runCatching { unregisterReceiver(screenWakeReceiver) }
+            screenReceiverRegistered = false
+        }
+        serviceScope.cancel()
+        super.onDestroy()
+    }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -113,6 +166,17 @@ class VitroNotificationListenerService : NotificationListenerService() {
         val converted = convertSbn(sbn) ?: return
         if (!converted.isOngoing && !converted.isMedia) {
             NotificationHub.emitIncoming(converted)
+            val cfg = latestConfig
+            if (cfg.replaceSystemNotifications) {
+                NotificationSoundEngine.playNotificationSound(
+                    context = applicationContext,
+                    soundId = cfg.activeNotifSoundId,
+                    customSounds = cfg.customNotifSounds
+                )
+                if (cfg.showSystemWideDynamicIsland) {
+                    VitroEdgeControlManager.showSystemWideNotifIsland(applicationContext, converted)
+                }
+            }
         }
     }
 

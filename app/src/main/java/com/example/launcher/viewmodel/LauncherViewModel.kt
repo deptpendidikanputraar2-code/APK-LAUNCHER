@@ -5,32 +5,42 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.provider.Settings
+import android.net.Uri
 import android.view.KeyEvent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.launcher.data.AppRepository
 import com.example.launcher.data.LauncherPreferencesRepository
 import com.example.launcher.data.SystemMonitor
+import com.example.launcher.model.BuiltInNotifSound
+import com.example.launcher.model.CustomNotificationSound
 import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.HomeWidgetPlacement
 import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.LiveNotification
+import com.example.launcher.model.LockClockColor
+import com.example.launcher.model.LockClockStyle
 import com.example.launcher.model.LockSecurityMode
 import com.example.launcher.model.NowPlayingInfo
 import com.example.launcher.model.PopupMessage
 import com.example.launcher.model.QuickModuleType
+import com.example.launcher.model.QuickPanelOrientation
 import com.example.launcher.model.SidebarItemConfig
 import com.example.launcher.model.SidebarItemType
 import com.example.launcher.model.SystemSyncStatus
+import com.example.launcher.model.WallpaperConfig
+import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.model.WidgetType
 import com.example.launcher.system.AvailableAndroidWidget
 import com.example.launcher.system.NotificationHub
+import com.example.launcher.system.NotificationSoundEngine
 import com.example.launcher.system.SystemSyncChecker
+import com.example.launcher.system.SystemWallpaperTarget
 import com.example.launcher.system.VitroAccessibilityService
 import com.example.launcher.system.VitroAppWidgetManager
 import com.example.launcher.system.VitroEdgeControlManager
+import com.example.launcher.system.WallpaperStorageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -45,9 +55,13 @@ import kotlinx.coroutines.withContext
 data class LauncherUiOverlays(
     val isQuickPanelOpen: Boolean = false,
     val isStudioOpen: Boolean = false,
+    val openStudioOnWallpaper: Boolean = false,
     val isAppDrawerOpen: Boolean = false,
+    val isUniversalSearchOpen: Boolean = false,
     val isLockScreenActive: Boolean = false,
     val activePopup: PopupMessage? = null,
+    val quickPanelFeedback: String? = null,
+    val wallpaperFeedback: String? = null,
     val focusSecondsRemaining: Int = 25 * 60,
     val isFocusRunning: Boolean = false,
     val isMediaPlaying: Boolean = false,
@@ -90,6 +104,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     val overlays: StateFlow<LauncherUiOverlays> = _overlays.asStateFlow()
 
     private var popupDismissJob: Job? = null
+    private var feedbackDismissJob: Job? = null
+    private var wallpaperFeedbackJob: Job? = null
     private var focusTimerJob: Job? = null
 
     private val packageReceiver = object : BroadcastReceiver() {
@@ -149,17 +165,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshInstalledApps() {
         viewModelScope.launch {
-            val apps = appRepo.loadInstalledApps()
-            _installedApps.value = apps
+            _installedApps.value = appRepo.loadInstalledApps()
         }
     }
 
     fun refreshAvailableAndroidWidgets() {
         viewModelScope.launch {
-            val widgets = withContext(Dispatchers.IO) {
+            _availableAndroidWidgets.value = withContext(Dispatchers.IO) {
                 appWidgetManager.loadInstalledAndroidWidgets()
             }
-            _availableAndroidWidgets.value = widgets
         }
     }
 
@@ -190,13 +204,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateConfig { current ->
             val list = current.pinnedDockPackages.toMutableList()
             if (list.isEmpty()) {
-                val fallback = _installedApps.value.take(current.dockMaxIcons).map { it.packageName }
-                list.addAll(fallback)
+                list.addAll(_installedApps.value.take(current.dockMaxIcons).map { it.packageName })
             }
             if (!list.contains(packageName)) {
-                if (list.size >= current.dockMaxIcons) {
-                    list.removeAt(list.lastIndex)
-                }
+                if (list.size >= current.dockMaxIcons) list.removeAt(list.lastIndex)
                 list.add(packageName)
             }
             current.copy(pinnedDockPackages = list)
@@ -232,15 +243,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // --- Widget Customization (Built-in + Real Android AppWidgets) ---
+    // --- Widget Customization & DIY Layout (Home + Lock Screen) ---
     fun toggleWidgetEnabled(type: WidgetType) {
         updateConfig { current ->
             val list = current.enabledWidgets.toMutableList()
-            if (list.contains(type) && list.size > 1) {
-                list.remove(type)
-            } else if (!list.contains(type)) {
-                list.add(type)
-            }
+            if (list.contains(type) && list.size > 1) list.remove(type)
+            else if (!list.contains(type)) list.add(type)
             current.copy(enabledWidgets = list)
         }
     }
@@ -259,13 +267,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun addBuiltInWidgetToPage(type: WidgetType, pageIndex: Int) {
+    fun addBuiltInWidgetToPage(type: WidgetType, pageIndex: Int = 0) {
         updateConfig { current ->
             val newWidget = HomeWidgetPlacement(
                 id = "w_${type.name.lowercase()}_${System.currentTimeMillis()}",
                 pageIndex = pageIndex.coerceIn(0, current.homePageCount - 1),
                 builtInType = type,
                 label = type.label,
+                widthPercent = 1.0f,
                 heightDp = 148
             )
             val updatedEnabled = if (type in current.enabledWidgets) current.enabledWidgets
@@ -285,6 +294,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 builtInType = null,
                 appWidgetId = appWidgetId,
                 label = label,
+                widthPercent = 1.0f,
                 heightDp = 180
             )
             current.copy(homeWidgets = current.homeWidgets + newWidget)
@@ -303,7 +313,28 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateConfig { current ->
             current.copy(
                 homeWidgets = current.homeWidgets.map { w ->
-                    if (w.id == widgetId) w.copy(heightDp = heightDp.coerceIn(96, 420)) else w
+                    if (w.id == widgetId) w.copy(heightDp = heightDp.coerceIn(72, 420)) else w
+                }
+            )
+        }
+    }
+
+    fun updateHomeWidgetLayout(
+        widgetId: String,
+        widthPercent: Float,
+        heightDp: Int,
+        xOffsetDp: Float,
+        yOffsetDp: Float
+    ) {
+        updateConfig { current ->
+            current.copy(
+                homeWidgets = current.homeWidgets.map { w ->
+                    if (w.id == widgetId) w.copy(
+                        widthPercent = widthPercent.coerceIn(0.44f, 1.0f),
+                        heightDp = heightDp.coerceIn(72, 420),
+                        xOffsetDp = xOffsetDp.coerceIn(-120f, 120f),
+                        yOffsetDp = yOffsetDp.coerceIn(-120f, 240f)
+                    ) else w
                 }
             )
         }
@@ -319,7 +350,143 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // --- Quick Panel Module Free Customization ---
+    // --- Home Search Bar DIY Layout ---
+    fun updateSearchBarLayout(
+        widthPercent: Float,
+        heightDp: Int,
+        xOffsetDp: Float,
+        yOffsetDp: Float
+    ) {
+        updateConfig { current ->
+            current.copy(
+                searchBar = current.searchBar.copy(
+                    widthPercent = widthPercent.coerceIn(0.50f, 1.0f),
+                    heightDp = heightDp.coerceIn(40, 68),
+                    xOffsetDp = xOffsetDp.coerceIn(-120f, 120f),
+                    yOffsetDp = yOffsetDp.coerceIn(-120f, 360f)
+                )
+            )
+        }
+    }
+
+    // --- Lock Screen Adaptive Clock & Lock Widget DIY ---
+    fun updateLockClockLayout(scale: Float, verticalOffsetDp: Float) {
+        updateConfig { current ->
+            current.copy(
+                lockClockScale = scale.coerceIn(0.55f, 1.85f),
+                lockClockVerticalOffsetDp = verticalOffsetDp.coerceIn(-60f, 160f)
+            )
+        }
+    }
+
+    fun updateLockClockStyle(style: LockClockStyle) {
+        updateConfig { it.copy(lockClockStyle = style) }
+    }
+
+    fun updateLockClockColor(color: LockClockColor) {
+        updateConfig { it.copy(lockClockColor = color) }
+    }
+
+    fun updateLockClockWeight(weight: Int) {
+        updateConfig { it.copy(lockClockWeight = weight.coerceIn(300, 900)) }
+    }
+
+    fun addLockWidget(type: WidgetType) {
+        updateConfig { current ->
+            val widget = HomeWidgetPlacement(
+                id = "lw_${type.name.lowercase()}_${System.currentTimeMillis()}",
+                pageIndex = 0,
+                builtInType = type,
+                label = type.label,
+                widthPercent = 0.48f,
+                heightDp = 112
+            )
+            current.copy(lockWidgets = current.lockWidgets + widget)
+        }
+    }
+
+    fun updateLockWidgetLayout(
+        widgetId: String,
+        widthPercent: Float,
+        heightDp: Int,
+        xOffsetDp: Float,
+        yOffsetDp: Float
+    ) {
+        updateConfig { current ->
+            current.copy(
+                lockWidgets = current.lockWidgets.map { w ->
+                    if (w.id == widgetId) w.copy(
+                        widthPercent = widthPercent.coerceIn(0.44f, 1.0f),
+                        heightDp = heightDp.coerceIn(80, 320),
+                        xOffsetDp = xOffsetDp.coerceIn(-100f, 100f),
+                        yOffsetDp = yOffsetDp.coerceIn(-80f, 160f)
+                    ) else w
+                }
+            )
+        }
+    }
+
+    fun removeLockWidget(widgetId: String) {
+        updateConfig { current ->
+            current.copy(lockWidgets = current.lockWidgets.filterNot { it.id == widgetId })
+        }
+    }
+
+    // --- Aesthetic Notification Sounds (Built-in + User Custom Audio) ---
+    fun selectNotificationSound(soundId: String) {
+        updateConfig { it.copy(activeNotifSoundId = soundId) }
+    }
+
+    fun previewNotificationSound(soundId: String) {
+        NotificationSoundEngine.playNotificationSound(
+            context = appContext,
+            soundId = soundId,
+            customSounds = config.value.customNotifSounds,
+            throttleMs = 0L
+        )
+    }
+
+    fun addCustomNotificationSound(name: String, uriString: String) {
+        val newSound = CustomNotificationSound(
+            id = "custom_${System.currentTimeMillis()}",
+            name = name.ifBlank { "Suara Kustom" },
+            uriString = uriString
+        )
+        updateConfig { current ->
+            current.copy(
+                customNotifSounds = current.customNotifSounds + newSound,
+                activeNotifSoundId = newSound.id
+            )
+        }
+        NotificationSoundEngine.playNotificationSound(
+            context = appContext,
+            soundId = newSound.id,
+            customSounds = config.value.customNotifSounds + newSound,
+            throttleMs = 0L
+        )
+    }
+
+    fun removeCustomNotificationSound(id: String) {
+        updateConfig { current ->
+            val filtered = current.customNotifSounds.filterNot { it.id == id }
+            val active = if (current.activeNotifSoundId == id) BuiltInNotifSound.CRYSTAL_DEW.id
+            else current.activeNotifSoundId
+            current.copy(customNotifSounds = filtered, activeNotifSoundId = active)
+        }
+    }
+
+    // --- Quick Panel Direct Customization ---
+    fun toggleQuickPanelOrientation() {
+        updateConfig { current ->
+            val next = if (current.quickPanelOrientation == QuickPanelOrientation.VERTICAL_IOS) {
+                QuickPanelOrientation.HORIZONTAL_STRIP
+            } else {
+                QuickPanelOrientation.VERTICAL_IOS
+            }
+            current.copy(quickPanelOrientation = next)
+        }
+    }
+
     fun toggleQuickModule(type: QuickModuleType) {
         updateConfig { current ->
             val updated = current.quickModules.map { mod ->
@@ -456,37 +623,124 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _overlays.value = _overlays.value.copy(
             isQuickPanelOpen = true,
             isAppDrawerOpen = false,
-            isStudioOpen = false
+            isStudioOpen = false,
+            isUniversalSearchOpen = false
         )
     }
 
     fun closeQuickPanel() {
-        _overlays.value = _overlays.value.copy(isQuickPanelOpen = false)
+        _overlays.value = _overlays.value.copy(isQuickPanelOpen = false, quickPanelFeedback = null)
     }
 
-    fun openStudio() {
+    // --- Modern Wallpaper Studio (Live, Glass, Gallery Photo, System Wallpaper) ---
+    fun updateHomeWallpaper(transform: (WallpaperConfig) -> WallpaperConfig) {
+        updateConfig { current ->
+            val updated = transform(current.wallpaperConfig)
+            current.copy(
+                wallpaperPreset = updated.preset,
+                wallpaperConfig = updated
+            )
+        }
+    }
+
+    fun updateLockWallpaper(transform: (WallpaperConfig) -> WallpaperConfig) {
+        updateConfig { current ->
+            val updated = transform(current.lockWallpaperConfig)
+            current.copy(
+                separateLockWallpaper = true,
+                lockWallpaperConfig = updated
+            )
+        }
+    }
+
+    fun setSeparateLockWallpaper(enabled: Boolean) {
+        updateConfig { current ->
+            current.copy(separateLockWallpaper = enabled)
+        }
+    }
+
+    fun importGalleryWallpaper(uri: Uri, isLockScreen: Boolean) {
+        viewModelScope.launch {
+            showWallpaperFeedback("Memproses foto galeri...")
+            val savedPath = WallpaperStorageManager.importCustomWallpaper(appContext, uri, isLockScreen)
+            if (savedPath != null) {
+                if (isLockScreen) {
+                    updateLockWallpaper {
+                        it.copy(preset = WallpaperPreset.CUSTOM_PHOTO, customImagePath = savedPath)
+                    }
+                    showWallpaperFeedback("Foto galeri diterapkan ke Wallpaper Layar Kunci!")
+                } else {
+                    updateHomeWallpaper {
+                        it.copy(preset = WallpaperPreset.CUSTOM_PHOTO, customImagePath = savedPath)
+                    }
+                    showWallpaperFeedback("Foto galeri diterapkan ke Wallpaper Beranda!")
+                }
+            } else {
+                showWallpaperFeedback("Gagal memuat foto galeri, coba pilih gambar lain.")
+            }
+        }
+    }
+
+    fun applyWallpaperToSystem(wpConfig: WallpaperConfig, target: SystemWallpaperTarget) {
+        viewModelScope.launch {
+            showWallpaperFeedback("Menerapkan ke ${target.label}...")
+            val result = WallpaperStorageManager.applyToAndroidSystemWallpaper(appContext, wpConfig, target)
+            val msg = result.getOrElse { "Gagal menerapkan wallpaper sistem: ${it.localizedMessage.orEmpty()}" }
+            showWallpaperFeedback(msg)
+        }
+    }
+
+    private fun showWallpaperFeedback(message: String) {
+        wallpaperFeedbackJob?.cancel()
+        _overlays.value = _overlays.value.copy(wallpaperFeedback = message)
+        wallpaperFeedbackJob = viewModelScope.launch {
+            delay(3_200L)
+            _overlays.value = _overlays.value.copy(wallpaperFeedback = null)
+        }
+    }
+
+    fun openStudio(startOnWallpaper: Boolean = false) {
         refreshSyncStatus()
         _overlays.value = _overlays.value.copy(
             isStudioOpen = true,
+            openStudioOnWallpaper = startOnWallpaper,
             isQuickPanelOpen = false,
-            isAppDrawerOpen = false
+            isAppDrawerOpen = false,
+            isUniversalSearchOpen = false
         )
     }
 
     fun closeStudio() {
-        _overlays.value = _overlays.value.copy(isStudioOpen = false)
+        _overlays.value = _overlays.value.copy(
+            isStudioOpen = false,
+            openStudioOnWallpaper = false
+        )
     }
 
     fun openAppDrawer() {
         _overlays.value = _overlays.value.copy(
             isAppDrawerOpen = true,
             isQuickPanelOpen = false,
-            isStudioOpen = false
+            isStudioOpen = false,
+            isUniversalSearchOpen = false
         )
     }
 
     fun closeAppDrawer() {
         _overlays.value = _overlays.value.copy(isAppDrawerOpen = false)
+    }
+
+    fun openUniversalSearch() {
+        _overlays.value = _overlays.value.copy(
+            isUniversalSearchOpen = true,
+            isQuickPanelOpen = false,
+            isStudioOpen = false,
+            isAppDrawerOpen = false
+        )
+    }
+
+    fun closeUniversalSearch() {
+        _overlays.value = _overlays.value.copy(isUniversalSearchOpen = false)
     }
 
     fun enterLockScreen() {
@@ -495,6 +749,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             isQuickPanelOpen = false,
             isStudioOpen = false,
             isAppDrawerOpen = false,
+            isUniversalSearchOpen = false,
             activePopup = null
         )
     }
@@ -566,6 +821,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun triggerSamplePopup(isLockScreen: Boolean) {
         popupDismissJob?.cancel()
+        if (config.value.replaceSystemNotifications) {
+            previewNotificationSound(config.value.activeNotifSoundId)
+        }
         val latest = liveNotifications.value.firstOrNull()
         val msg = if (latest != null) {
             PopupMessage(
@@ -578,14 +836,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         } else if (isLockScreen) {
             PopupMessage(
                 title = "Notifikasi Layar Kunci",
-                body = "Gaya ${config.value.lockPopupStyle.label} siap menampilkan notifikasi nyata HP Anda.",
+                body = "Gaya ${config.value.lockPopupStyle.label} & suara estetik aktif.",
                 badge = "Layar Kunci",
                 isLockScreenContext = true
             )
         } else {
             PopupMessage(
                 title = "Notifikasi Beranda",
-                body = "Gaya ${config.value.homePopupStyle.label} aktif. Aktifkan Akses Notifikasi untuk pesan nyata HP.",
+                body = "Gaya ${config.value.homePopupStyle.label} & suara estetik aktif.",
                 badge = "Beranda",
                 isLockScreenContext = false
             )
@@ -606,6 +864,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun launchApp(app: InstalledApp) {
         dismissPopup()
         closeAppDrawer()
+        closeUniversalSearch()
         appRepo.launchApp(app)
     }
 
@@ -638,26 +897,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _overlays.value = _overlays.value.copy(isMediaPlaying = !_overlays.value.isMediaPlaying)
     }
 
-    fun mediaNext() {
-        systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
+    fun mediaNext() = systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
+
+    fun mediaPrevious() = systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+
+    private fun showQuickPanelFeedback(message: String) {
+        feedbackDismissJob?.cancel()
+        _overlays.value = _overlays.value.copy(quickPanelFeedback = message)
+        feedbackDismissJob = viewModelScope.launch {
+            delay(2_400L)
+            _overlays.value = _overlays.value.copy(quickPanelFeedback = null)
+        }
     }
 
-    fun mediaPrevious() {
-        systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-    }
-
+    /** Direct instant module response without kicking user out to native Settings app! */
     fun handleQuickModuleClick(type: QuickModuleType) {
         when (type) {
-            QuickModuleType.WIFI -> systemMonitor.openWifiPanel()
-            QuickModuleType.CELLULAR -> systemMonitor.openSystemSettings(Settings.ACTION_DATA_ROAMING_SETTINGS)
-            QuickModuleType.BLUETOOTH -> systemMonitor.openSystemSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
-            QuickModuleType.FLASHLIGHT -> systemMonitor.toggleFlashlight()
-            QuickModuleType.DND -> systemMonitor.toggleDndReal()
-            QuickModuleType.ROTATION -> systemMonitor.toggleAutoRotateReal()
-            QuickModuleType.AIRPLANE -> systemMonitor.openSystemSettings(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
-            QuickModuleType.HOTSPOT -> systemMonitor.openSystemSettings(Settings.ACTION_WIRELESS_SETTINGS)
-            QuickModuleType.LOCATION -> systemMonitor.openSystemSettings(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
-            QuickModuleType.BATTERY_SAVER -> systemMonitor.openSystemSettings(Settings.ACTION_BATTERY_SAVER_SETTINGS)
             QuickModuleType.SCREENSHOT -> {
                 closeQuickPanel()
                 viewModelScope.launch {
@@ -675,7 +930,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 closeQuickPanel()
                 lockPhoneOrVitroScreen()
             }
+            else -> {
+                val feedback = systemMonitor.handleDirectInstantToggle(type, telemetry.value)
+                showQuickPanelFeedback(feedback)
+            }
         }
+    }
+
+    /** Long-press a Quick Panel module if the user explicitly wants native Android detail settings. */
+    fun handleQuickModuleLongPress(type: QuickModuleType) {
+        systemMonitor.openModuleDetailSettings(type)
     }
 
     fun toggleFocusTimer() {

@@ -38,15 +38,18 @@ import androidx.compose.material.icons.rounded.Dock
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewCarousel
 import androidx.compose.material.icons.rounded.ViewSidebar
+import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -65,37 +68,49 @@ import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.LockSecurityMode
 import com.example.launcher.model.QuickModuleType
 import com.example.launcher.model.SystemSyncStatus
+import com.example.launcher.model.WallpaperConfig
 import com.example.launcher.model.WidgetType
 import com.example.launcher.system.AvailableAndroidWidget
+import com.example.launcher.system.SystemWallpaperTarget
+import com.example.launcher.ui.components.VitroCustomizableSearchBar
 import com.example.launcher.ui.components.VitroGlassContainer
 import com.example.launcher.ui.components.bouncyClickable
 import com.example.ui.theme.VitroCyanAccent
 import com.example.ui.theme.VitroTextPrimary
 import com.example.ui.theme.VitroTextSecondary
 
-private enum class StudioCategory(val label: String, val icon: ImageVector) {
-    SYNC("Sinkron HP", Icons.Rounded.PhoneAndroid),
-    DOCK("Dock Bar", Icons.Rounded.Dock),
-    WIDGETS("Widget", Icons.Rounded.DashboardCustomize),
-    QUICK_PANEL("Quick Panel", Icons.Rounded.Tune),
-    DYNAMIC_ISLAND("Dynamic Island", Icons.Rounded.AutoAwesome),
-    SIDEBAR("Sidebar", Icons.Rounded.ViewSidebar),
-    STATUS("Indikator", Icons.Rounded.SignalCellularAlt),
-    POPUP("Pop-Up", Icons.Rounded.NotificationsActive),
-    PAGES("Halaman & Sandi", Icons.Rounded.ViewCarousel),
-    TRANSITION("Transisi", Icons.Rounded.Animation),
-    THEME("Tema", Icons.Rounded.Palette)
+private enum class StudioCategory(val label: String, val keywords: String, val icon: ImageVector) {
+    SYNC("Sinkron HP", "izin aksesibilitas notifikasi overlay default launcher", Icons.Rounded.PhoneAndroid),
+    WALLPAPER("Wallpaper", "wallpaper live animasi glass kaca blur galeri foto bokeh paralaks 3d", Icons.Rounded.Wallpaper),
+    SEARCH("Pencarian", "search cari bentuk warna posisi diy", Icons.Rounded.Search),
+    DYNAMIC_ISLAND("Dynamic Island", "iphone 18 pro max musik notifikasi gelembung", Icons.Rounded.AutoAwesome),
+    POPUP("Notif & Suara", "suara notifikasi audio popup ganti bawaan", Icons.Rounded.NotificationsActive),
+    PAGES("Layar Kunci & Jam", "adaptive clock sandi pin ketuk 2x diy", Icons.Rounded.ViewCarousel),
+    WIDGETS("Widget", "widget kaca analog dunia cuaca musik android diy", Icons.Rounded.DashboardCustomize),
+    QUICK_PANEL("Quick Panel", "kontrol modul ukuran horizontal vertikal", Icons.Rounded.Tune),
+    DOCK("Dock Bar", "dock aplikasi semat ikon", Icons.Rounded.Dock),
+    SIDEBAR("Sidebar", "sidebar kiri kanan aplikasi", Icons.Rounded.ViewSidebar),
+    STATUS("Indikator", "status bar baterai jam sinyal", Icons.Rounded.SignalCellularAlt),
+    TRANSITION("Transisi", "animasi kubus geser kecepatan", Icons.Rounded.Animation),
+    THEME("Tema", "tema glow default reset launcher", Icons.Rounded.Palette)
 }
 
 @Composable
 fun CustomizationStudioOverlay(
     visible: Boolean,
+    startOnWallpaperTab: Boolean = false,
+    wallpaperFeedback: String? = null,
     config: LauncherConfig,
     installedApps: List<InstalledApp>,
     availableAndroidWidgets: List<AvailableAndroidWidget>,
     syncStatus: SystemSyncStatus,
     onDismiss: () -> Unit,
     onUpdateConfig: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    onUpdateHomeWallpaper: ((WallpaperConfig) -> WallpaperConfig) -> Unit,
+    onUpdateLockWallpaper: ((WallpaperConfig) -> WallpaperConfig) -> Unit,
+    onSetSeparateLockWallpaper: (Boolean) -> Unit,
+    onPickGalleryPhoto: (Boolean) -> Unit,
+    onApplySystemWallpaper: (WallpaperConfig, SystemWallpaperTarget) -> Unit,
     onRefreshSyncStatus: () -> Unit,
     onAddDockApp: (String) -> Unit,
     onRemoveDockApp: (String) -> Unit,
@@ -114,6 +129,10 @@ fun CustomizationStudioOverlay(
     onAddAppToSidebar: (String) -> Unit,
     onRemoveSidebarItem: (String) -> Unit,
     onSetLockPasscode: (LockSecurityMode, String) -> Unit,
+    onSelectNotifSound: (String) -> Unit,
+    onPreviewNotifSound: (String) -> Unit,
+    onRequestAddCustomSound: () -> Unit,
+    onRemoveCustomSound: (String) -> Unit,
     onPreviewQuickPanel: () -> Unit,
     onPreviewHomePopup: () -> Unit,
     onPreviewLockPopup: () -> Unit,
@@ -127,6 +146,21 @@ fun CustomizationStudioOverlay(
     onResetDefaults: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(StudioCategory.SYNC) }
+    var studioSearchQuery by remember(visible) { mutableStateOf("") }
+
+    LaunchedEffect(visible, startOnWallpaperTab) {
+        if (visible && startOnWallpaperTab) {
+            selectedTab = StudioCategory.WALLPAPER
+        }
+    }
+
+    val filteredTabs = remember(studioSearchQuery) {
+        val q = studioSearchQuery.trim()
+        if (q.isBlank()) StudioCategory.entries
+        else StudioCategory.entries.filter {
+            it.label.contains(q, ignoreCase = true) || it.keywords.contains(q, ignoreCase = true)
+        }.ifEmpty { StudioCategory.entries }
+    }
 
     AnimatedVisibility(
         visible = visible,
@@ -163,7 +197,7 @@ fun CustomizationStudioOverlay(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
+                        .padding(horizontal = 18.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -195,12 +229,34 @@ fun CustomizationStudioOverlay(
                     }
                 }
 
+                // Unified customizable Search Bar right inside Studio Vitro!
+                VitroCustomizableSearchBar(
+                    searchConfig = config.searchBar,
+                    query = studioSearchQuery,
+                    onQueryChange = { q ->
+                        studioSearchQuery = q
+                        val trimmed = q.trim()
+                        if (trimmed.isNotBlank()) {
+                            StudioCategory.entries.firstOrNull {
+                                it.label.contains(trimmed, ignoreCase = true) ||
+                                    it.keywords.contains(trimmed, ignoreCase = true)
+                            }?.let { selectedTab = it }
+                        }
+                    },
+                    placeholder = "Cari menu pengaturan (mis: Dynamic Island, Suara, Jam)...",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(StudioCategory.entries) { tab ->
+                    items(filteredTabs) { tab ->
                         val isSelected = selectedTab == tab
                         VitroGlassContainer(
                             cornerRadius = 50.dp,
@@ -253,6 +309,20 @@ fun CustomizationStudioOverlay(
                             onOpenWriteSettings = onOpenWriteSettings,
                             onOpenDndPolicy = onOpenDndPolicy
                         )
+                        StudioCategory.WALLPAPER -> WallpaperStudioTab(
+                            config = config,
+                            wallpaperFeedback = wallpaperFeedback,
+                            onUpdateHomeWallpaper = onUpdateHomeWallpaper,
+                            onUpdateLockWallpaper = onUpdateLockWallpaper,
+                            onSetSeparateLockWallpaper = onSetSeparateLockWallpaper,
+                            onUpdateAmbientGlow = { v -> onUpdateConfig { it.copy(ambientGlowIntensity = v) } },
+                            onPickGalleryPhoto = onPickGalleryPhoto,
+                            onApplyToSystemWallpaper = onApplySystemWallpaper
+                        )
+                        StudioCategory.SEARCH -> SearchBarStudioTab(
+                            config = config,
+                            onUpdate = onUpdateConfig
+                        )
                         StudioCategory.DOCK -> DockStudioTab(
                             config = config,
                             installedApps = installedApps,
@@ -302,6 +372,10 @@ fun CustomizationStudioOverlay(
                         StudioCategory.POPUP -> PopupStudioTab(
                             config = config,
                             onUpdate = onUpdateConfig,
+                            onSelectSound = onSelectNotifSound,
+                            onPreviewSound = onPreviewNotifSound,
+                            onRequestAddCustomSound = onRequestAddCustomSound,
+                            onRemoveCustomSound = onRemoveCustomSound,
                             onPreviewHomePopup = onPreviewHomePopup,
                             onPreviewLockPopup = onPreviewLockPopup
                         )
@@ -320,6 +394,7 @@ fun CustomizationStudioOverlay(
                         StudioCategory.THEME -> ThemeWallpaperStudioTab(
                             config = config,
                             onUpdate = onUpdateConfig,
+                            onOpenWallpaperStudio = { selectedTab = StudioCategory.WALLPAPER },
                             onSetDefaultLauncher = onOpenDefaultLauncher,
                             onResetDefaults = onResetDefaults
                         )

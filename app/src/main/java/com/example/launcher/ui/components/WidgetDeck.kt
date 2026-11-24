@@ -989,5 +989,23 @@ private fun WidgetContentBody(
                 }
             }
         }
+
+        WidgetType.ANALOG_CLOCK -> AnalogGlassClockWidget(telemetry = telemetry)
+
+        WidgetType.WORLD_CLOCK -> WorldClockGlassWidget()
+
+        WidgetType.WEATHER_PRO -> WeatherProGlassWidget(telemetry = telemetry)
+
+        WidgetType.MEDIA_WAVEFORM -> MediaWaveformProWidget(
+            nowPlaying = nowPlaying,
+            isPlaying = overlays.isMediaPlaying,
+            onPlayPause = onToggleMedia,
+            onPrev = onToggleMedia,
+            onNext = onToggleMedia
+        )
+
+        WidgetType.DEVICE_RADAR -> DeviceRadarGlassWidget(telemetry = telemetry)
+
+        WidgetType.DAILY_QUOTE -> DailyQuoteGlassWidget()
     }
 }

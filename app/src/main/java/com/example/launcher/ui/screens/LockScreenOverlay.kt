@@ -8,14 +8,19 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.displayCutoutPadding
@@ -36,17 +41,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Backspace
-import androidx.compose.material.icons.rounded.BatteryChargingFull
-import androidx.compose.material.icons.rounded.BatteryStd
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.NotificationsActive
-import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.OpenWith
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material.icons.rounded.WbTwilight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -69,8 +72,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -79,50 +82,72 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.R
 import com.example.launcher.model.DeviceTelemetry
+import com.example.launcher.model.HomeWidgetPlacement
+import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.LiveNotification
+import com.example.launcher.model.LockClockColor
+import com.example.launcher.model.LockClockStyle
 import com.example.launcher.model.LockSecurityMode
+import com.example.launcher.model.NowPlayingInfo
+import com.example.launcher.model.WidgetType
+import com.example.launcher.ui.components.AdaptiveLockClockHero
+import com.example.launcher.ui.components.LockScreenDiyControlSheet
+import com.example.launcher.ui.components.SingleBuiltInGlassWidgetCard
 import com.example.launcher.ui.components.TopStatusIndicatorArea
 import com.example.launcher.ui.components.VitroGlassContainer
 import com.example.launcher.ui.components.VitroWallpaperBackdrop
 import com.example.launcher.ui.components.applyPageTransition
 import com.example.launcher.ui.components.bouncyClickable
+import com.example.launcher.viewmodel.LauncherUiOverlays
 import com.example.ui.theme.VitroAmber
 import com.example.ui.theme.VitroCoral
 import com.example.ui.theme.VitroCyanAccent
-import com.example.ui.theme.VitroMint
 import com.example.ui.theme.VitroObsidian
 import com.example.ui.theme.VitroTextPrimary
 import com.example.ui.theme.VitroTextSecondary
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun LockScreenOverlay(
     visible: Boolean,
     config: LauncherConfig,
     telemetry: DeviceTelemetry,
+    overlays: LauncherUiOverlays = LauncherUiOverlays(),
+    nowPlaying: NowPlayingInfo = NowPlayingInfo(),
+    installedApps: List<InstalledApp> = emptyList(),
     notifications: List<LiveNotification>,
     isNotificationAccessEnabled: Boolean,
     onUnlock: () -> Unit,
     onVerifyPasscode: (String) -> Boolean,
     onToggleFlashlight: () -> Unit,
+    onToggleMedia: () -> Unit = {},
     onTriggerLockPopup: () -> Unit,
     onOpenNotification: (LiveNotification) -> Unit,
     onDismissNotification: (String) -> Unit,
     onClearAllNotifications: () -> Unit,
     onEnableNotificationAccess: () -> Unit,
-    onOpenStudioFromLock: () -> Unit
+    onOpenStudioFromLock: () -> Unit,
+    onUpdateLockClockLayout: (Float, Float) -> Unit = { _, _ -> },
+    onUpdateLockClockStyle: (LockClockStyle) -> Unit = {},
+    onUpdateLockClockColor: (LockClockColor) -> Unit = {},
+    onUpdateLockClockWeight: (Int) -> Unit = {},
+    onAddLockWidget: (WidgetType) -> Unit = {},
+    onUpdateLockWidgetLayout: (String, Float, Int, Float, Float) -> Unit = { _, _, _, _, _ -> },
+    onRemoveLockWidget: (String) -> Unit = {}
 ) {
     val requiresPasscode = config.lockSecurityMode != LockSecurityMode.NONE &&
         config.lockPasscodeHash.isNotBlank()
 
     var showPasscodeChallenge by remember(visible) { mutableStateOf(false) }
     var pendingNotificationToOpen by remember(visible) { mutableStateOf<LiveNotification?>(null) }
+    var isLockDiyMode by remember(visible) { mutableStateOf(false) }
 
     fun requestUnlockOrChallenge(afterUnlockNotif: LiveNotification? = null) {
+        if (isLockDiyMode) return
         if (requiresPasscode) {
             pendingNotificationToOpen = afterUnlockNotif
             showPasscodeChallenge = true
@@ -138,11 +163,13 @@ fun LockScreenOverlay(
         exit = fadeOut() + slideOutVertically { -it / 3 }
     ) {
         BackHandler {
-            if (showPasscodeChallenge) {
-                showPasscodeChallenge = false
-                pendingNotificationToOpen = null
-            } else if (!requiresPasscode) {
-                onUnlock()
+            when {
+                showPasscodeChallenge -> {
+                    showPasscodeChallenge = false
+                    pendingNotificationToOpen = null
+                }
+                isLockDiyMode -> isLockDiyMode = false
+                !requiresPasscode -> onUnlock()
             }
         }
 
@@ -161,197 +188,290 @@ fun LockScreenOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .testTag("lock_screen_overlay")
-                .pointerInput(requiresPasscode) {
-                    detectVerticalDragGestures(
-                        onDragStart = { swipeAccum = 0f },
-                        onVerticalDrag = { _, dragAmount -> swipeAccum += dragAmount },
-                        onDragEnd = {
-                            if (swipeAccum < -110f) requestUnlockOrChallenge()
-                            swipeAccum = 0f
-                        }
-                    )
+                .pointerInput(showPasscodeChallenge, isLockDiyMode) {
+                    if (!showPasscodeChallenge && !isLockDiyMode) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (swipeAccum < -110f) requestUnlockOrChallenge()
+                                swipeAccum = 0f
+                            },
+                            onDragCancel = { swipeAccum = 0f },
+                            onVerticalDrag = { _, dragAmount ->
+                                if (dragAmount < 0) swipeAccum += dragAmount
+                            }
+                        )
+                    }
                 }
+                .testTag("lock_screen_overlay")
         ) {
-            VitroWallpaperBackdrop(preset = config.wallpaperPreset, dimAlpha = 0.28f)
+            VitroWallpaperBackdrop(
+                wallpaperConfig = config.effectiveLockWallpaper(),
+                glowIntensity = config.ambientGlowIntensity
+            )
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(topSafe)
-                    .navigationBarsPadding()
-                    .padding(bottom = 16.dp),
+                    .navigationBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                TopStatusIndicatorArea(
-                    config = config,
-                    telemetry = telemetry,
-                    onOpenQuickPanel = onTriggerLockPopup,
-                    onTriggerPopup = onTriggerLockPopup
-                )
+                if (config.dynamicIsland.enabled && config.dynamicIsland.showOnLockScreen) {
+                    Spacer(modifier = Modifier.height((config.dynamicIsland.heightDp + config.dynamicIsland.topOffsetDp + 4f).dp))
+                }
 
+                // Top status row + subtle Lock DIY trigger button
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    TopStatusIndicatorArea(
+                        config = config,
+                        telemetry = telemetry,
+                        onOpenQuickPanel = {},
+                        onTriggerPopup = onTriggerLockPopup
+                    )
+                    IconButton(
+                        onClick = { isLockDiyMode = !isLockDiyMode },
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 10.dp)
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (isLockDiyMode) VitroCyanAccent else Color.White.copy(alpha = 0.14f))
+                            .testTag("lock_diy_toggle_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = "Mode DIY Layar Kunci",
+                            tint = if (isLockDiyMode) Color(0xFF040814) else VitroTextPrimary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                // Multi-page Lock Screen Pager
                 HorizontalPager(
                     state = lockPagerState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .testTag("lock_screen_pager")
                 ) { page ->
-                    val horizontalMargin = ((1.16f - config.lockPageScale) * 48f).coerceIn(12f, 30f).dp
-                    Box(
+                    Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .scale(config.lockPageScale)
                             .applyPageTransition(
                                 pagerState = lockPagerState,
                                 page = page,
                                 style = config.pageTransitionStyle
                             )
-                            .padding(horizontal = horizontalMargin, vertical = 10.dp)
-                            .scale(config.lockPageScale.coerceIn(0.88f, 1.06f))
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        when (page) {
-                            0 -> LockMainClockPage(
+                        if (page == 0) {
+                            // Adaptive Clock (long-press or drag handle to freely resize directly on Lock Screen!)
+                            AdaptiveLockClockHero(
                                 config = config,
                                 telemetry = telemetry,
+                                notificationCount = notifications.size,
+                                isDiyMode = isLockDiyMode,
+                                onEnterDiy = { isLockDiyMode = true },
+                                onUpdateClockLayout = onUpdateLockClockLayout
+                            )
+
+                            // DIY Resizable & Draggable Lock Screen Glass Widgets
+                            if (config.lockWidgets.isNotEmpty()) {
+                                FlowRow(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    config.lockWidgets.forEach { placement ->
+                                        LockScreenDiyWidgetItem(
+                                            placement = placement,
+                                            isDiyMode = isLockDiyMode,
+                                            config = config,
+                                            telemetry = telemetry,
+                                            overlays = overlays,
+                                            nowPlaying = nowPlaying,
+                                            installedApps = installedApps,
+                                            notifications = notifications,
+                                            isNotificationAccessEnabled = isNotificationAccessEnabled,
+                                            onEnterDiy = { isLockDiyMode = true },
+                                            onUpdateLayout = { w, h, x, y ->
+                                                onUpdateLockWidgetLayout(placement.id, w, h, x, y)
+                                            },
+                                            onRemove = { onRemoveLockWidget(placement.id) },
+                                            onToggleMedia = onToggleMedia,
+                                            onOpenNotification = { requestUnlockOrChallenge(it) },
+                                            onDismissNotification = onDismissNotification,
+                                            onEnableNotificationAccess = onEnableNotificationAccess,
+                                            onOpenStudio = onOpenStudioFromLock
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Live Phone Notifications Deck on Lock Screen
+                            LockNotificationsDeck(
                                 notifications = notifications,
                                 isNotificationAccessEnabled = isNotificationAccessEnabled,
+                                glassOpacity = config.popupGlassOpacity,
                                 onOpenNotification = { notif -> requestUnlockOrChallenge(notif) },
                                 onDismissNotification = onDismissNotification,
-                                onClearAllNotifications = onClearAllNotifications,
-                                onEnableNotificationAccess = onEnableNotificationAccess
+                                onClearAll = onClearAllNotifications,
+                                onEnableNotificationAccess = onEnableNotificationAccess,
+                                onTriggerPreview = onTriggerLockPopup
                             )
-                            1 -> LockQuickWidgetsPage(
+                        } else {
+                            // Secondary Lock Screen pages: extra focus / widgets / quick preview
+                            AdaptiveLockClockHero(
                                 config = config,
-                                telemetry = telemetry
-                            )
-                            2 -> LockQuickControlsPage(
                                 telemetry = telemetry,
-                                onToggleFlashlight = onToggleFlashlight,
-                                onTriggerLockPopup = onTriggerLockPopup,
-                                onOpenStudioFromLock = {
-                                    if (!requiresPasscode) onOpenStudioFromLock()
-                                    else showPasscodeChallenge = true
-                                }
+                                notificationCount = notifications.size,
+                                isDiyMode = isLockDiyMode,
+                                onEnterDiy = { isLockDiyMode = true },
+                                onUpdateClockLayout = onUpdateLockClockLayout
                             )
-                            else -> LockFocusNotePage(config = config, telemetry = telemetry)
+                            VitroGlassContainer(
+                                cornerRadius = 24.dp,
+                                glassOpacity = config.widgetGlassOpacity,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(18.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Halaman Layar Kunci ${page + 1}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = VitroCyanAccent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Tahan lama jam atau ketuk ikon pensil di kanan atas untuk mengatur Adaptive Clock dan menambah widget kaca langsung di layar kunci.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = VitroTextSecondary
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                if (config.lockPageCount > 1) {
+                // Bottom Area: either Lock DIY Editor Sheet OR Unlock Controls
+                if (isLockDiyMode) {
+                    LockScreenDiyControlSheet(
+                        config = config,
+                        onUpdateClockStyle = onUpdateLockClockStyle,
+                        onUpdateClockColor = onUpdateLockClockColor,
+                        onUpdateClockScale = { s -> onUpdateLockClockLayout(s, config.lockClockVerticalOffsetDp) },
+                        onUpdateClockWeight = onUpdateLockClockWeight,
+                        onAddLockWidget = onAddLockWidget,
+                        onDone = { isLockDiyMode = false }
+                    )
+                } else {
                     Row(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        repeat(config.lockPageCount.coerceIn(1, 4)) { idx ->
-                            val selected = lockPagerState.currentPage == idx
-                            Box(
-                                modifier = Modifier
-                                    .width(if (selected) 20.dp else 7.dp)
-                                    .height(7.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (selected) VitroCyanAccent
-                                        else Color.White.copy(alpha = 0.35f)
-                                    )
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    VitroGlassContainer(
-                        cornerRadius = 50.dp,
-                        tintColor = if (telemetry.isFlashlightOn) VitroAmber else Color.White,
-                        glassOpacity = if (telemetry.isFlashlightOn) 0.45f else 0.22f,
-                        modifier = Modifier
-                            .size(52.dp)
-                            .testTag("lock_flashlight_button")
-                            .bouncyClickable(onClick = onToggleFlashlight)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.FlashlightOn,
-                            contentDescription = "Senter",
-                            tint = Color.White,
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-
-                    VitroGlassContainer(
-                        cornerRadius = 50.dp,
-                        tintColor = Color.White,
-                        glassOpacity = 0.24f,
-                        modifier = Modifier
-                            .testTag("lock_unlock_button")
-                            .bouncyClickable(onClick = { requestUnlockOrChallenge() })
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (telemetry.isFlashlightOn) VitroAmber.copy(alpha = 0.85f)
+                                    else Color.White.copy(alpha = 0.16f)
+                                )
+                                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                                .clickable(onClick = onToggleFlashlight),
+                            contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = if (requiresPasscode) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                                contentDescription = "Buka kunci layar",
-                                tint = VitroCyanAccent,
-                                modifier = Modifier.size(18.dp)
+                                Icons.Rounded.FlashlightOn,
+                                contentDescription = "Senter",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
                             )
-                            Text(
-                                text = if (requiresPasscode) "Masukkan Sandi" else "Buka Layar",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = VitroTextPrimary
+                        }
+
+                        VitroGlassContainer(
+                            cornerRadius = 26.dp,
+                            glassOpacity = 0.24f,
+                            modifier = Modifier
+                                .bouncyClickable { requestUnlockOrChallenge() }
+                                .testTag("unlock_lock_screen_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (requiresPasscode) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                                    contentDescription = "Buka Layar",
+                                    tint = VitroCyanAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = if (requiresPasscode) "Masukkan Sandi" else "Buka Layar",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = VitroTextPrimary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.16f))
+                                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                                .clickable(onClick = onTriggerLockPopup),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Rounded.NotificationsActive,
+                                contentDescription = "Notifikasi",
+                                tint = VitroCyanAccent,
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
 
-                    VitroGlassContainer(
-                        cornerRadius = 50.dp,
-                        tintColor = Color.White,
-                        glassOpacity = 0.22f,
-                        modifier = Modifier
-                            .size(52.dp)
-                            .testTag("lock_test_popup_button")
-                            .bouncyClickable(onClick = onTriggerLockPopup)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.NotificationsActive,
-                            contentDescription = "Notifikasi layar kunci",
-                            tint = VitroCyanAccent,
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
+                    Text(
+                        text = "Geser ke atas untuk membuka • Tahan lama jam untuk mode DIY",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VitroTextSecondary,
+                        modifier = Modifier.padding(bottom = 10.dp)
+                    )
                 }
-
-                Text(
-                    text = if (requiresPasscode) "Geser ke atas untuk memasukkan sandi" else stringResource(R.string.lock_screen_hint),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VitroTextSecondary.copy(alpha = 0.8f)
-                )
             }
 
-            // Frosted Glass PIN / Password Challenge Gate
+            // Frosted Glass Passcode / PIN Challenge Modal
             AnimatedVisibility(
                 visible = showPasscodeChallenge,
-                enter = fadeIn() + slideInVertically { it / 4 },
-                exit = fadeOut() + slideOutVertically { it / 4 }
+                enter = fadeIn(),
+                exit = fadeOut()
             ) {
                 LockPasscodeChallengeOverlay(
-                    mode = config.lockSecurityMode,
-                    pinLength = config.lockPasscodeLength.coerceIn(4, 6),
-                    onVerify = onVerifyPasscode,
-                    onSuccess = {
-                        showPasscodeChallenge = false
-                        val targetNotif = pendingNotificationToOpen
-                        pendingNotificationToOpen = null
-                        onUnlock()
-                        if (targetNotif != null) onOpenNotification(targetNotif)
+                    securityMode = config.lockSecurityMode,
+                    expectedLength = config.lockPasscodeLength,
+                    onVerify = { input ->
+                        if (onVerifyPasscode(input)) {
+                            val targetNotif = pendingNotificationToOpen
+                            showPasscodeChallenge = false
+                            pendingNotificationToOpen = null
+                            onUnlock()
+                            if (targetNotif != null) onOpenNotification(targetNotif)
+                            true
+                        } else {
+                            false
+                        }
                     },
                     onCancel = {
                         showPasscodeChallenge = false
@@ -363,440 +483,259 @@ fun LockScreenOverlay(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LockPasscodeChallengeOverlay(
-    mode: LockSecurityMode,
-    pinLength: Int,
-    onVerify: (String) -> Boolean,
-    onSuccess: () -> Unit,
-    onCancel: () -> Unit
+private fun LockScreenDiyWidgetItem(
+    placement: HomeWidgetPlacement,
+    isDiyMode: Boolean,
+    config: LauncherConfig,
+    telemetry: DeviceTelemetry,
+    overlays: LauncherUiOverlays,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    notifications: List<LiveNotification>,
+    isNotificationAccessEnabled: Boolean,
+    onEnterDiy: () -> Unit,
+    onUpdateLayout: (Float, Int, Float, Float) -> Unit,
+    onRemove: () -> Unit,
+    onToggleMedia: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onOpenStudio: () -> Unit
 ) {
-    var input by remember { mutableStateOf("") }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-    var showPasswordText by remember { mutableStateOf(false) }
-    val shakeOffset = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    var widthPct by remember(placement.id, placement.widthPercent) { mutableFloatStateOf(placement.widthPercent) }
+    var heightDp by remember(placement.id, placement.heightDp) { mutableFloatStateOf(placement.heightDp.toFloat()) }
+    var xOff by remember(placement.id, placement.xOffsetDp) { mutableFloatStateOf(placement.xOffsetDp) }
+    var yOff by remember(placement.id, placement.yOffsetDp) { mutableFloatStateOf(placement.yOffsetDp) }
 
-    fun triggerError() {
-        errorMsg = "Sandi salah, coba lagi"
-        input = ""
-        scope.launch {
-            listOf(-22f, 22f, -16f, 16f, -8f, 8f, 0f).forEach { target ->
-                shakeOffset.animateTo(target, tween(45))
-            }
-        }
-    }
+    val w = (if (isDiyMode) widthPct else placement.widthPercent).coerceIn(0.44f, 0.99f)
+    val h = (if (isDiyMode) heightDp.roundToInt() else placement.heightDp).coerceIn(80, 320)
 
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xE8050916))
-            .navigationBarsPadding()
-            .padding(24.dp),
-        contentAlignment = Alignment.Center
+            .fillMaxWidth(w)
+            .offset {
+                IntOffset(
+                    with(density) { xOff.dp.roundToPx() },
+                    with(density) { yOff.dp.roundToPx() }
+                )
+            }
+            .then(
+                if (isDiyMode) {
+                    Modifier
+                        .border(1.4.dp, VitroCyanAccent, RoundedCornerShape(24.dp))
+                        .pointerInput(placement.id) {
+                            detectDragGestures(
+                                onDragEnd = { onUpdateLayout(widthPct, heightDp.roundToInt(), xOff, yOff) },
+                                onDrag = { change, drag ->
+                                    change.consume()
+                                    xOff = (xOff + with(density) { drag.x.toDp().value }).coerceIn(-100f, 100f)
+                                    yOff = (yOff + with(density) { drag.y.toDp().value }).coerceIn(-80f, 160f)
+                                }
+                            )
+                        }
+                } else {
+                    Modifier.combinedClickable(onClick = {}, onLongClick = onEnterDiy)
+                }
+            )
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .offset { IntOffset(shakeOffset.value.roundToInt(), 0) },
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp)
-        ) {
+        placement.builtInType?.let { type ->
+            SingleBuiltInGlassWidgetCard(
+                type = type,
+                config = config,
+                telemetry = telemetry,
+                overlays = overlays,
+                notifications = notifications,
+                nowPlaying = nowPlaying,
+                installedApps = installedApps,
+                isNotificationAccessEnabled = isNotificationAccessEnabled,
+                onToggleMedia = onToggleMedia,
+                onToggleFocusTimer = {},
+                onResetFocusTimer = {},
+                onOpenNotification = onOpenNotification,
+                onDismissNotification = onDismissNotification,
+                onEnableNotificationAccess = onEnableNotificationAccess,
+                onLaunchApp = {},
+                onOpenStudio = onOpenStudio,
+                modifier = Modifier.height(h.dp)
+            )
+        }
+
+        if (isDiyMode) {
             Box(
                 modifier = Modifier
-                    .size(54.dp)
+                    .align(Alignment.TopStart)
+                    .padding(5.dp)
+                    .size(24.dp)
                     .clip(CircleShape)
-                    .background(VitroCyanAccent.copy(alpha = 0.18f)),
+                    .background(VitroCoral)
+                    .clickable(onClick = onRemove),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Lock,
-                    contentDescription = null,
-                    tint = VitroCyanAccent,
-                    modifier = Modifier.size(26.dp)
-                )
+                Icon(Icons.Rounded.Close, contentDescription = "Hapus", tint = Color.White, modifier = Modifier.size(14.dp))
             }
-
-            Text(
-                text = if (mode == LockSecurityMode.PIN) "Masukkan PIN ($pinLength Digit)" else "Masukkan Sandi Layar Kunci",
-                style = MaterialTheme.typography.titleLarge,
-                color = VitroTextPrimary
-            )
-
-            if (errorMsg != null) {
-                Text(
-                    text = errorMsg!!,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = VitroCoral
-                )
-            }
-
-            if (mode == LockSecurityMode.PIN) {
-                // Animated Glass PIN Dots
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(pinLength) { idx ->
-                        val filled = idx < input.length
-                        Box(
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape)
-                                .background(if (filled) VitroCyanAccent else Color.Transparent)
-                                .border(1.5.dp, if (filled) VitroCyanAccent else Color.White.copy(alpha = 0.5f), CircleShape)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // iOS Frosted Glass Numeric Keypad
-                val rows = listOf(
-                    listOf("1", "2", "3"),
-                    listOf("4", "5", "6"),
-                    listOf("7", "8", "9")
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    rows.forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(22.dp)) {
-                            row.forEach { digit ->
-                                GlassPinKey(
-                                    label = digit,
-                                    onClick = {
-                                        errorMsg = null
-                                        if (input.length < pinLength) {
-                                            val next = input + digit
-                                            input = next
-                                            if (next.length == pinLength) {
-                                                if (onVerify(next)) onSuccess() else triggerError()
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(22.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(74.dp)
-                                .clip(CircleShape)
-                                .clickable(onClick = onCancel),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("Batal", style = MaterialTheme.typography.labelLarge, color = VitroTextSecondary)
-                        }
-                        GlassPinKey(
-                            label = "0",
-                            onClick = {
-                                errorMsg = null
-                                if (input.length < pinLength) {
-                                    val next = input + "0"
-                                    input = next
-                                    if (next.length == pinLength) {
-                                        if (onVerify(next)) onSuccess() else triggerError()
-                                    }
-                                }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(5.dp)
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(VitroCyanAccent)
+                    .pointerInput(placement.id) {
+                        detectDragGestures(
+                            onDragEnd = { onUpdateLayout(widthPct, heightDp.roundToInt(), xOff, yOff) },
+                            onDrag = { change, drag ->
+                                change.consume()
+                                widthPct = (widthPct + with(density) { drag.x.toDp().value } / 320f).coerceIn(0.44f, 1.0f)
+                                heightDp = (heightDp + with(density) { drag.y.toDp().value }).coerceIn(80f, 320f)
                             }
                         )
-                        Box(
-                            modifier = Modifier
-                                .size(74.dp)
-                                .clip(CircleShape)
-                                .clickable {
-                                    if (input.isNotEmpty()) input = input.dropLast(1)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.Backspace,
-                                contentDescription = "Hapus digit",
-                                tint = VitroTextPrimary
-                            )
-                        }
-                    }
-                }
-            } else {
-                // Alphanumeric Password Mode
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = {
-                        errorMsg = null
-                        input = it
                     },
-                    singleLine = true,
-                    placeholder = { Text("Ketik kata sandi…", color = VitroTextSecondary) },
-                    visualTransformation = if (showPasswordText) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { showPasswordText = !showPasswordText }) {
-                            Icon(
-                                imageVector = if (showPasswordText) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                contentDescription = "Tampilkan sandi",
-                                tint = VitroTextSecondary
-                            )
-                        }
-                    },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = VitroCyanAccent,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.28f),
-                        focusedTextColor = VitroTextPrimary,
-                        unfocusedTextColor = VitroTextPrimary
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    TextButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
-                        Text("Batal", color = VitroTextSecondary)
-                    }
-                    Button(
-                        onClick = {
-                            if (onVerify(input)) onSuccess() else triggerError()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = VitroCyanAccent, contentColor = VitroObsidian),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Buka Kunci", style = MaterialTheme.typography.labelLarge)
-                    }
-                }
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.OpenWith, contentDescription = "Ubah Ukuran", tint = Color(0xFF040814), modifier = Modifier.size(14.dp))
             }
         }
     }
 }
 
 @Composable
-private fun GlassPinKey(
-    label: String,
-    onClick: () -> Unit
-) {
-    VitroGlassContainer(
-        cornerRadius = 50.dp,
-        glassOpacity = 0.22f,
-        modifier = Modifier
-            .size(74.dp)
-            .testTag("lock_pin_key_$label")
-            .bouncyClickable(onClick = onClick)
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Medium),
-            color = VitroTextPrimary,
-            modifier = Modifier.align(Alignment.Center)
-        )
-    }
-}
-
-@Composable
-private fun LockMainClockPage(
-    config: LauncherConfig,
-    telemetry: DeviceTelemetry,
+private fun LockNotificationsDeck(
     notifications: List<LiveNotification>,
     isNotificationAccessEnabled: Boolean,
+    glassOpacity: Float,
     onOpenNotification: (LiveNotification) -> Unit,
     onDismissNotification: (String) -> Unit,
-    onClearAllNotifications: () -> Unit,
-    onEnableNotificationAccess: () -> Unit
+    onClearAll: () -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onTriggerPreview: () -> Unit
 ) {
-    val clockFontSize = (72f * config.lockClockScale).coerceIn(50f, 96f).sp
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = telemetry.dateText,
-                style = MaterialTheme.typography.titleMedium,
-                color = VitroTextPrimary.copy(alpha = 0.92f)
-            )
-            Text(
-                text = telemetry.timeText,
-                style = MaterialTheme.typography.displayLarge.copy(
-                    fontSize = clockFontSize,
-                    lineHeight = clockFontSize * 1.05f,
-                    fontWeight = FontWeight.Light
-                ),
-                color = VitroTextPrimary
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                VitroGlassContainer(cornerRadius = 50.dp, glassOpacity = 0.22f) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.WbTwilight,
-                            contentDescription = null,
-                            tint = VitroAmber,
-                            modifier = Modifier.size(16.dp)
-                        )
+        if (!isNotificationAccessEnabled) {
+            VitroGlassContainer(
+                cornerRadius = 22.dp,
+                glassOpacity = glassOpacity,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onEnableNotificationAccess)
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(24.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = telemetry.networkLabel,
-                            style = MaterialTheme.typography.labelMedium,
+                            text = "Aktifkan Notifikasi Asli HP",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
                             color = VitroTextPrimary
                         )
-                    }
-                }
-                VitroGlassContainer(cornerRadius = 50.dp, glassOpacity = 0.22f) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (telemetry.isCharging) Icons.Rounded.BatteryChargingFull
-                            else Icons.Rounded.BatteryStd,
-                            contentDescription = null,
-                            tint = VitroMint,
-                            modifier = Modifier.size(16.dp)
-                        )
                         Text(
-                            text = "${telemetry.batteryPercent}%",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = VitroTextPrimary
+                            text = "Ketuk di sini agar pesan WhatsApp, SMS & aplikasi lain muncul langsung di Layar Kunci & Dynamic Island.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = VitroTextSecondary
                         )
                     }
                 }
             }
-        }
-
-        // Real Live Phone Notifications on Lock Screen
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = false)
-                .padding(top = 18.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (!isNotificationAccessEnabled) {
-                VitroGlassContainer(
-                    cornerRadius = config.popupCornerRadius.dp,
-                    glassOpacity = 0.26f,
-                    tintColor = VitroCyanAccent,
+        } else if (notifications.isEmpty()) {
+            VitroGlassContainer(
+                cornerRadius = 22.dp,
+                glassOpacity = glassOpacity * 0.8f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onTriggerPreview)
+            ) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .bouncyClickable(onClick = onEnableNotificationAccess)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "Aktifkan Notifikasi HP Nyata",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = VitroCyanAccent
-                        )
-                        Text(
-                            text = "Ketuk di sini untuk memberi izin Akses Notifikasi agar pesan WhatsApp, SMS & aplikasi tampil langsung di Layar Kunci dan Beranda.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = VitroTextSecondary
-                        )
-                    }
+                    Text(
+                        text = "Tidak ada notifikasi baru",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VitroTextSecondary
+                    )
+                    Text(
+                        text = "Pratinjau",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = VitroCyanAccent,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
-            } else if (notifications.isEmpty()) {
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Notifikasi (${notifications.size})",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = VitroTextPrimary
+                )
+                TextButton(onClick = onClearAll) {
+                    Text("Bersihkan", style = MaterialTheme.typography.labelSmall, color = VitroCyanAccent)
+                }
+            }
+            notifications.take(6).forEach { notif ->
                 VitroGlassContainer(
-                    cornerRadius = config.popupCornerRadius.dp,
-                    glassOpacity = 0.20f,
-                    modifier = Modifier.fillMaxWidth()
+                    cornerRadius = 22.dp,
+                    glassOpacity = glassOpacity,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenNotification(notif) }
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(18.dp))
-                        Text(
-                            text = "Notifikasi aktif (${config.lockPopupStyle.label}) • Belum ada pesan baru",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = VitroTextSecondary
-                        )
-                    }
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Notifikasi (${notifications.size})",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = VitroTextPrimary
-                    )
-                    Text(
-                        text = "Bersihkan semua",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = VitroCyanAccent,
-                        modifier = Modifier.clickable(onClick = onClearAllNotifications)
-                    )
-                }
-
-                notifications.take(5).forEach { notif ->
-                    VitroGlassContainer(
-                        cornerRadius = config.popupCornerRadius.dp,
-                        glassOpacity = config.popupGlassOpacity.coerceIn(0.20f, 0.55f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onOpenNotification(notif) }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            if (notif.appIcon != null) {
-                                Image(
-                                    bitmap = notif.appIcon,
-                                    contentDescription = notif.appName,
-                                    modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp))
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .size(34.dp)
-                                        .clip(CircleShape)
-                                        .background(VitroCyanAccent.copy(alpha = 0.22f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "${notif.title} • ${notif.appName}",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = VitroTextPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = notif.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = VitroTextSecondary,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
+                        if (notif.appIcon != null) {
+                            Image(
+                                bitmap = notif.appIcon,
+                                contentDescription = notif.appName,
+                                modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                            )
+                        } else {
+                            Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(24.dp))
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${notif.appName} • ${notif.title}",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = VitroTextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = notif.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VitroTextSecondary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (!notif.isOngoing) {
                             IconButton(
                                 onClick = { onDismissNotification(notif.key) },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(Icons.Rounded.Close, contentDescription = "Hapus", tint = VitroTextSecondary, modifier = Modifier.size(16.dp))
                             }
@@ -809,181 +748,154 @@ private fun LockMainClockPage(
 }
 
 @Composable
-private fun LockQuickWidgetsPage(
-    config: LauncherConfig,
-    telemetry: DeviceTelemetry
+private fun LockPasscodeChallengeOverlay(
+    securityMode: LockSecurityMode,
+    expectedLength: Int,
+    onVerify: (String) -> Boolean,
+    onCancel: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "Ringkasan Perangkat",
-            style = MaterialTheme.typography.headlineMedium,
-            color = VitroTextPrimary
-        )
-        VitroGlassContainer(cornerRadius = 26.dp, glassOpacity = config.widgetGlassOpacity) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text("Baterai & Suhu", style = MaterialTheme.typography.labelLarge, color = VitroMint)
-                Text(
-                    text = "${telemetry.batteryPercent}% • ${"%.1f".format(telemetry.batteryTempC)}°C",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = VitroTextPrimary
-                )
-                Text(
-                    text = if (telemetry.isCharging) "Pengisian daya aktif" else "Mode hemat & stabil",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VitroTextSecondary
-                )
-            }
-        }
-        VitroGlassContainer(cornerRadius = 26.dp, glassOpacity = config.widgetGlassOpacity) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text("RAM & Penyimpanan", style = MaterialTheme.typography.labelLarge, color = VitroCyanAccent)
-                Text(
-                    text = "RAM ${"%.1f".format(telemetry.ramUsedGb)}/${"%.1f".format(telemetry.ramTotalGb)} GB",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = VitroTextPrimary
-                )
-                Text(
-                    text = "Memori ${"%.0f".format(telemetry.storageUsedGb)}/${"%.0f".format(telemetry.storageTotalGb)} GB terpakai",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = VitroTextSecondary
-                )
+    var input by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
+    var showPassword by remember { mutableStateOf(false) }
+    val shakeOffset = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+
+    fun triggerError() {
+        errorMsg = "Sandi salah, coba lagi"
+        input = ""
+        scope.launch {
+            listOf(-18f, 18f, -12f, 12f, 0f).forEach { target ->
+                shakeOffset.animateTo(target, tween(45))
             }
         }
     }
-}
 
-@Composable
-private fun LockQuickControlsPage(
-    telemetry: DeviceTelemetry,
-    onToggleFlashlight: () -> Unit,
-    onTriggerLockPopup: () -> Unit,
-    onOpenStudioFromLock: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "Pintasan Layar Kunci",
-            style = MaterialTheme.typography.headlineMedium,
-            color = VitroTextPrimary
-        )
-        VitroGlassContainer(
-            cornerRadius = 24.dp,
-            glassOpacity = 0.24f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .bouncyClickable(onClick = onToggleFlashlight)
-        ) {
-            Row(
-                modifier = Modifier.padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Rounded.FlashlightOn, contentDescription = null, tint = VitroAmber)
-                Column {
-                    Text("Senter Cepat", style = MaterialTheme.typography.titleMedium, color = VitroTextPrimary)
-                    Text(
-                        if (telemetry.isFlashlightOn) "Menyala • Ketuk matikan" else "Mati • Ketuk nyalakan",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = VitroTextSecondary
-                    )
-                }
-            }
-        }
-        VitroGlassContainer(
-            cornerRadius = 24.dp,
-            glassOpacity = 0.24f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .bouncyClickable(onClick = onTriggerLockPopup)
-        ) {
-            Row(
-                modifier = Modifier.padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Rounded.NotificationsActive, contentDescription = null, tint = VitroCyanAccent)
-                Column {
-                    Text("Uji Pop-Up Layar Kunci", style = MaterialTheme.typography.titleMedium, color = VitroTextPrimary)
-                    Text("Tampilkan pratinjau notifikasi bergaya kaca", style = MaterialTheme.typography.bodyMedium, color = VitroTextSecondary)
-                }
-            }
-        }
-        VitroGlassContainer(
-            cornerRadius = 24.dp,
-            glassOpacity = 0.24f,
-            modifier = Modifier
-                .fillMaxWidth()
-                .bouncyClickable(onClick = onOpenStudioFromLock)
-        ) {
-            Row(
-                modifier = Modifier.padding(18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(Icons.Rounded.Tune, contentDescription = null, tint = VitroCyanAccent)
-                Column {
-                    Text("Ubah Sandi & Layar Kunci", style = MaterialTheme.typography.titleMedium, color = VitroTextPrimary)
-                    Text("Buka Studio Vitro secara langsung", style = MaterialTheme.typography.bodyMedium, color = VitroTextSecondary)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LockFocusNotePage(
-    config: LauncherConfig,
-    telemetry: DeviceTelemetry
-) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(VitroObsidian.copy(alpha = 0.88f))
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
-        VitroGlassContainer(
-            cornerRadius = 28.dp,
-            glassOpacity = 0.25f,
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset { IntOffset(shakeOffset.value.roundToInt(), 0) },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Catatan Layar Kunci",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = VitroAmber
+            Icon(Icons.Rounded.Lock, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(34.dp))
+            Text(
+                text = if (securityMode == LockSecurityMode.PIN) "Masukkan PIN Layar Kunci" else "Masukkan Kata Sandi",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = VitroTextPrimary
+            )
+            if (errorMsg != null) {
+                Text(errorMsg!!, style = MaterialTheme.typography.labelMedium, color = VitroCoral)
+            }
+
+            if (securityMode == LockSecurityMode.PIN) {
+                val pinLen = expectedLength.coerceIn(4, 6)
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    repeat(pinLen) { i ->
+                        val filled = i < input.length
+                        Box(
+                            modifier = Modifier
+                                .size(15.dp)
+                                .clip(CircleShape)
+                                .background(if (filled) VitroCyanAccent else Color.Transparent)
+                                .border(1.5.dp, if (filled) VitroCyanAccent else Color.White.copy(alpha = 0.55f), CircleShape)
+                        )
+                    }
+                }
+
+                val rows = listOf(
+                    listOf("1", "2", "3"),
+                    listOf("4", "5", "6"),
+                    listOf("7", "8", "9"),
+                    listOf("Batal", "0", "DEL")
                 )
-                Text(
-                    text = config.quickNoteText,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = VitroTextPrimary,
-                    textAlign = TextAlign.Center
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    rows.forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                            row.forEach { key ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.13f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+                                        .clickable {
+                                            errorMsg = null
+                                            when (key) {
+                                                "Batal" -> onCancel()
+                                                "DEL" -> if (input.isNotEmpty()) input = input.dropLast(1)
+                                                else -> {
+                                                    if (input.length < pinLen) {
+                                                        val next = input + key
+                                                        input = next
+                                                        if (next.length == pinLen) {
+                                                            if (!onVerify(next)) triggerError()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    when (key) {
+                                        "DEL" -> Icon(Icons.AutoMirrored.Rounded.Backspace, contentDescription = "Hapus", tint = VitroTextPrimary)
+                                        "Batal" -> Text("Batal", style = MaterialTheme.typography.labelSmall, color = VitroTextSecondary)
+                                        else -> Text(key, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = VitroTextPrimary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        errorMsg = null
+                    },
+                    singleLine = true,
+                    placeholder = { Text("Kata sandi Anda", color = VitroTextSecondary) },
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        IconButton(onClick = { showPassword = !showPassword }) {
+                            Icon(
+                                if (showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                contentDescription = "Tampilkan",
+                                tint = VitroTextSecondary
+                            )
+                        }
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = VitroTextPrimary,
+                        unfocusedTextColor = VitroTextPrimary,
+                        focusedBorderColor = VitroCyanAccent,
+                        unfocusedBorderColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Text(
-                    text = "${telemetry.timeText} • ${telemetry.dateText}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = VitroTextSecondary
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(onClick = onCancel, modifier = Modifier.weight(1f)) {
+                        Text("Batal", color = VitroTextSecondary)
+                    }
+                    Button(
+                        onClick = { if (!onVerify(input)) triggerError() },
+                        colors = ButtonDefaults.buttonColors(containerColor = VitroCyanAccent),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Buka", color = Color(0xFF040814), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    }
+                }
             }
         }
     }

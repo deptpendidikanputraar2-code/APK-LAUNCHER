@@ -55,75 +55,31 @@ fun VitroWallpaperBackdrop(
     glowIntensity: Float = 0.80f,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        when (preset) {
-            WallpaperPreset.SYSTEM_LIVE -> {
-                // Transparent backdrop letting the real Android system / live wallpaper show through
-                Box(modifier = Modifier.fillMaxSize())
-            }
-            WallpaperPreset.AURORA -> {
-                Image(
-                    painter = painterResource(id = R.drawable.img_wallpaper_aurora_1795471682249),
-                    contentDescription = stringResource(R.string.cd_wallpaper),
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            WallpaperPreset.PRISM -> {
-                Image(
-                    painter = painterResource(id = R.drawable.img_wallpaper_prism_1795471682679),
-                    contentDescription = stringResource(R.string.cd_wallpaper),
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            WallpaperPreset.DUSK -> {
-                Image(
-                    painter = painterResource(id = R.drawable.img_wallpaper_dusk_1795471681919),
-                    contentDescription = stringResource(R.string.cd_wallpaper),
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
-            WallpaperPreset.OBSIDIAN_MESH -> {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    VitroObsidian,
-                                    Color(0xFF101D3A),
-                                    VitroIndigo.copy(alpha = 0.35f),
-                                    VitroCyanAccent.copy(alpha = 0.18f),
-                                    VitroObsidian
-                                )
-                            )
-                        )
-                )
-            }
-        }
+    VitroAdvancedWallpaperBackdrop(
+        wallpaperConfig = com.example.launcher.model.WallpaperConfig(
+            preset = preset,
+            glassStyle = com.example.launcher.model.WallpaperGlassStyle.NONE,
+            particleOverlay = com.example.launcher.model.WallpaperParticleOverlay.NONE,
+            dimAlpha = dimAlpha
+        ),
+        glowIntensity = glowIntensity,
+        modifier = modifier
+    )
+}
 
-        // Subtle atmospheric ambient aura orbs strictly on the wallpaper layer
-        if (glowIntensity > 0.02f) {
-            VitroAmbientGlowLayer(intensity = glowIntensity)
-        }
-
-        // Soft atmospheric scrim so frosted surfaces & white typography stay crystal clear
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = dimAlpha + 0.10f),
-                            Color.Black.copy(alpha = dimAlpha * 0.45f),
-                            Color.Black.copy(alpha = dimAlpha + 0.16f)
-                        )
-                    )
-                )
-        )
-    }
+@Composable
+fun VitroWallpaperBackdrop(
+    wallpaperConfig: com.example.launcher.model.WallpaperConfig,
+    glowIntensity: Float = 0.80f,
+    enableSensorParallax: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    VitroAdvancedWallpaperBackdrop(
+        wallpaperConfig = wallpaperConfig,
+        glowIntensity = glowIntensity,
+        enableSensorParallax = enableSensorParallax,
+        modifier = modifier
+    )
 }
 
 @Composable

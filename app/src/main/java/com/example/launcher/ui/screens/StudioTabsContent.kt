@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Home
@@ -723,10 +724,23 @@ fun StatusIndicatorStudioTab(
 fun PopupStudioTab(
     config: LauncherConfig,
     onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    onSelectSound: (String) -> Unit,
+    onPreviewSound: (String) -> Unit,
+    onRequestAddCustomSound: () -> Unit,
+    onRemoveCustomSound: (String) -> Unit,
     onPreviewHomePopup: () -> Unit,
     onPreviewLockPopup: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        NotificationSoundStudioSection(
+            config = config,
+            onUpdate = onUpdate,
+            onSelectSound = onSelectSound,
+            onPreviewSound = onPreviewSound,
+            onRequestAddCustomSound = onRequestAddCustomSound,
+            onRemoveCustomSound = onRemoveCustomSound
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -814,6 +828,11 @@ fun PagesStudioTab(
     var statusFeedback by remember { mutableStateOf<String?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        AdaptiveClockStudioCard(
+            config = config,
+            onUpdate = onUpdate
+        )
+
         StudioSectionTitle("Gestur Kunci Layar Cepat")
         StudioToggleRow(
             label = "Ketuk 2 Kali di Beranda untuk Kunci HP",
@@ -1047,10 +1066,24 @@ fun TransitionStudioTab(
 fun ThemeWallpaperStudioTab(
     config: LauncherConfig,
     onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    onOpenWallpaperStudio: () -> Unit = {},
     onSetDefaultLauncher: () -> Unit,
     onResetDefaults: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Button(
+            onClick = onOpenWallpaperStudio,
+            colors = ButtonDefaults.buttonColors(containerColor = VitroCyanAccent, contentColor = VitroObsidian),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("studio_open_full_wallpaper_button")
+        ) {
+            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Buka Studio Wallpaper Live, Glass & Galeri", style = MaterialTheme.typography.labelLarge)
+        }
+
         StudioSliderRow(
             label = "Intensitas Efek Pendar (Glow)",
             valueText = "${(config.ambientGlowIntensity * 100).roundToInt()}%",
@@ -1059,14 +1092,21 @@ fun ThemeWallpaperStudioTab(
             onValueChange = { v -> onUpdate { it.copy(ambientGlowIntensity = v) } }
         )
 
-        StudioSectionTitle("Wallpaper (Bisa Sinkron Wallpaper Asli HP)")
+        StudioSectionTitle("Pilihan Cepat Wallpaper")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            WallpaperPreset.entries.forEach { preset ->
+            WallpaperPreset.entries.take(8).forEach { preset ->
                 StudioRadioCard(
                     title = preset.label,
                     subtitle = preset.subtitle,
-                    selected = config.wallpaperPreset == preset,
-                    onClick = { onUpdate { it.copy(wallpaperPreset = preset) } }
+                    selected = config.wallpaperConfig.preset == preset,
+                    onClick = {
+                        onUpdate { cur ->
+                            cur.copy(
+                                wallpaperPreset = preset,
+                                wallpaperConfig = cur.wallpaperConfig.copy(preset = preset)
+                            )
+                        }
+                    }
                 )
             }
         }

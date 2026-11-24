@@ -1,6 +1,7 @@
 package com.example.launcher.model
 
 import android.app.PendingIntent
+import android.media.AudioManager
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 
@@ -32,13 +33,19 @@ enum class WidgetStackMode(val label: String, val description: String) {
 
 enum class WidgetType(val label: String, val subtitle: String) {
     CLOCK_WEATHER("Jam & Cuaca", "Jam real-time & tanggal perangkat"),
+    ANALOG_CLOCK("Jam Analog Kaca", "Jarum detik live dengan dial Liquid Glass"),
+    WORLD_CLOCK("Jam Dunia", "Jakarta, Tokyo & London secara real-time"),
+    WEATHER_PRO("Cuaca & Atmosfer", "Prakiraan harian, UV & kelembapan estetis"),
     BATTERY_SYSTEM("Baterai & Suhu", "Status daya, pengisian & suhu nyata HP"),
     FOCUS_MEDIA("Media & Fokus", "Kontrol pemutar musik HP & timer fokus"),
+    MEDIA_WAVEFORM("Musik Pro Waveform", "Visualisator spektrum musik ala iPhone 18 Pro"),
     CALENDAR_MINI("Kalender Mini", "Hari & bulan tersinkron otomatis"),
-    QUICK_NOTE("Catatan Cepat", "Catatan singkat yang selalu tampil"),
+    QUICK_NOTE("Catatan Cepat", "Catatan singkat yang bisa diedit langsung"),
     LIVE_NOTIFICATIONS("Notifikasi HP", "Daftar notifikasi masuk secara real-time"),
     STORAGE_RAM("RAM & Penyimpanan", "Pantau memori & penyimpanan HP nyata"),
-    APP_SHORTCUTS("Pintasan Cepat", "Akses 4 aplikasi teratas dalam 1 ketukan")
+    APP_SHORTCUTS("Pintasan Cepat", "Akses 4 aplikasi teratas dalam 1 ketukan"),
+    DEVICE_RADAR("Radar Perangkat", "Ringkasan Wi-Fi, sinyal, baterai & status sistem"),
+    DAILY_QUOTE("Kutipan Estetik", "Inspirasi harian dengan sentuhan kaca cair")
 }
 
 data class HomeWidgetPlacement(
@@ -47,7 +54,10 @@ data class HomeWidgetPlacement(
     val builtInType: WidgetType? = null,
     val appWidgetId: Int? = null,
     val label: String = "",
-    val heightDp: Int = 148
+    val widthPercent: Float = 1.0f, // 0.44f .. 1.0f freely DIY resizable
+    val heightDp: Int = 148,        // 72 .. 420 dp freely DIY resizable
+    val xOffsetDp: Float = 0f,      // DIY horizontal offset
+    val yOffsetDp: Float = 0f       // DIY vertical offset
 )
 
 enum class QuickPanelOrientation(val label: String, val description: String) {
@@ -67,6 +77,7 @@ enum class QuickModuleType(val label: String) {
     BLUETOOTH("Bluetooth"),
     FLASHLIGHT("Senter"),
     DND("Jangan Ganggu"),
+    RINGER_MODE("Mode Suara"),
     ROTATION("Rotasi"),
     AIRPLANE("Mode Pesawat"),
     HOTSPOT("Hotspot"),
@@ -89,29 +100,107 @@ enum class DynamicIslandStyle(
     val containerColor: Color,
     val accentColor: Color
 ) {
-    OBSIDIAN("Obsidian Hitam", Color(0xFF050812), Color(0xFF38BDF8)),
+    OBSIDIAN("iPhone 18 Obsidian", Color(0xFF03050A), Color(0xFF38BDF8)),
+    LIQUID_PRISM("Liquid Prism Pro", Color(0xFF090F22), Color(0xFF818CF8)),
     FROSTED_GLASS("Kaca Bening", Color(0xFF1A2540), Color(0xFFFFFFFF)),
-    AURORA_GLOW("Aurora Safir", Color(0xFF0A1633), Color(0xFF22D3EE)),
-    SAPPHIRE("Biru Safir", Color(0xFF102A6B), Color(0xFF60A5FA)),
-    EMERALD("Zamrud Neon", Color(0xFF062C22), Color(0xFF34D399)),
-    ROSE_QUARTZ("Kuarsa Mawar", Color(0xFF340C1D), Color(0xFFFB7185))
+    AURORA_GLOW("Aurora Safir", Color(0xFF07152E), Color(0xFF22D3EE)),
+    EMERALD("Zamrud Neon", Color(0xFF04261D), Color(0xFF34D399)),
+    ROSE_QUARTZ("Kuarsa Mawar", Color(0xFF2D0A1A), Color(0xFFFB7185))
 }
 
 data class DynamicIslandConfig(
     val enabled: Boolean = true,
-    val widthDp: Float = 158f,
-    val heightDp: Float = 34f,
+    val widthDp: Float = 166f,
+    val heightDp: Float = 36f,
     val topOffsetDp: Float = 8f,
     val horizontalOffsetDp: Float = 0f,
     val cornerRadiusDp: Float = 24f,
     val style: DynamicIslandStyle = DynamicIslandStyle.OBSIDIAN,
-    val borderGlow: Float = 0.65f,
+    val borderGlow: Float = 0.80f,
     val showOnLockScreen: Boolean = true,
     val showClock: Boolean = true,
     val showBattery: Boolean = true,
     val showNotifications: Boolean = true,
     val showMedia: Boolean = true,
-    val showFocusTimer: Boolean = true
+    val showFocusTimer: Boolean = true,
+    val autoExpandOnNotification: Boolean = true,
+    val autoExpandOnSystemStatus: Boolean = true,
+    val showDualSplitBubble: Boolean = true
+)
+
+enum class LockClockStyle(val label: String, val subtitle: String) {
+    ADAPTIVE_LIQUID("Adaptive Clock", "Otomatis menyesuaikan ukuran & ketebalan sesuai ruang & notifikasi"),
+    IOS_DEPTH("Liquid Depth Pro", "Angka besar berkilau kaca ala iPhone 18 Pro Max"),
+    EDITORIAL_THIN("Editorial Tipis", "Tipografi tipis minimalis & elegan"),
+    BOLD_KINETIC("Kinetik Tebal", "Jam tebal tegas dan mudah dibaca cepat"),
+    SPLIT_STACK("Bertumpuk Vertikal", "Jam di atas, menit di bawah gaya poster modern"),
+    ANALOG_HYBRID("Analog + Digital", "Dial analog kaca dipadu jam digital ringkas")
+}
+
+enum class LockClockColor(val label: String, val primary: Color, val accent: Color) {
+    PURE_WHITE("Putih Kristal", Color(0xFFF8FAFC), Color(0xFF38BDF8)),
+    AURORA_CYAN("Aurora Sian", Color(0xFF67E8F9), Color(0xFF818CF8)),
+    ROSE_PEARL("Mutiara Mawar", Color(0xFFFDA4AF), Color(0xFFF472B6)),
+    SUNSET_AMBER("Sinar Senja", Color(0xFFFDE68A), Color(0xFFF59E0B)),
+    MINT_CRYSTAL("Kristal Mint", Color(0xFF6EE7B7), Color(0xFF2DD4BF)),
+    LAVENDER_GLASS("Kaca Lavender", Color(0xFFC4B5FD), Color(0xFF38BDF8))
+}
+
+enum class SearchBarPosition(val label: String) {
+    TOP("Atas Layar"),
+    MIDDLE("Tengah Layar"),
+    ABOVE_DOCK("Di Atas Dock"),
+    FLOATING_DIY("Bebas (DIY)")
+}
+
+enum class SearchBarShape(val label: String, val cornerDp: Float) {
+    PILL("Kapsul Penuh", 28f),
+    LIQUID_ROUNDED("Kaca Melengkung", 18f),
+    SOFT_SQUARE("Kotak Lembut", 10f),
+    MINIMAL_LINE("Garis Minimalis", 4f)
+}
+
+enum class SearchBarColorPreset(
+    val label: String,
+    val bgColor: Color,
+    val borderColor: Color,
+    val contentColor: Color
+) {
+    FROSTED_GLASS("Kaca Bening", Color(0xFFFFFFFF), Color(0x55FFFFFF), Color(0xFFF8FAFC)),
+    OBSIDIAN("Obsidian Gelap", Color(0xFF080E1E), Color(0x5538BDF8), Color(0xFFF8FAFC)),
+    AURORA_CYAN("Aurora Sian", Color(0xFF0E7490), Color(0x8867E8F9), Color(0xFFF8FAFC)),
+    ROSE_QUARTZ("Kuarsa Mawar", Color(0xFF9F1239), Color(0x88FDA4AF), Color(0xFFFFF1F2)),
+    EMERALD_GLASS("Zamrud Kaca", Color(0xFF065F46), Color(0x886EE7B7), Color(0xFFECFDF5)),
+    AMBER_GOLD("Emas Hangat", Color(0xFF92400E), Color(0x88FDE68A), Color(0xFFFFFBEB)),
+    PURE_LIGHT("Putih Salju", Color(0xFFF1F5F9), Color(0xAAFFFFFF), Color(0xFF0F172A))
+}
+
+data class SearchBarConfig(
+    val enabledOnHome: Boolean = true,
+    val position: SearchBarPosition = SearchBarPosition.TOP,
+    val shape: SearchBarShape = SearchBarShape.PILL,
+    val colorPreset: SearchBarColorPreset = SearchBarColorPreset.FROSTED_GLASS,
+    val opacity: Float = 0.24f,
+    val widthPercent: Float = 0.94f, // 0.50f .. 1.0f DIY resizable
+    val heightDp: Int = 48,          // 40 .. 68 dp DIY resizable
+    val xOffsetDp: Float = 0f,
+    val yOffsetDp: Float = 0f
+)
+
+enum class BuiltInNotifSound(val id: String, val label: String, val subtitle: String) {
+    CRYSTAL_DEW("builtin_crystal_dew", "Embun Kaca", "Dentingan kristal jernih ala iOS Liquid"),
+    LIQUID_HARP("builtin_liquid_harp", "Harpa Cair", "Arpeggio harpa lembut menenangkan"),
+    AURORA_PULSE("builtin_aurora_pulse", "Denyut Aurora", "Harmoni synth hangat bercahaya"),
+    ZEN_GLASS_BELL("builtin_zen_bell", "Lonceng Kaca Zen", "Resonansi lonceng kaca murni"),
+    SILK_MARIMBA("builtin_silk_marimba", "Marimba Sutra", "Ketukan kayu lembut modern"),
+    PRISM_DROP("builtin_prism_drop", "Tetes Prisma", "Tetesan air kaca bernada lembut"),
+    SILENT("builtin_silent", "Hening", "Tanpa suara notifikasi tambahan")
+}
+
+data class CustomNotificationSound(
+    val id: String,
+    val name: String,
+    val uriString: String
 )
 
 enum class SidebarItemType(val defaultLabel: String) {
@@ -176,13 +265,143 @@ enum class TransitionSpeed(val label: String, val stiffness: Float, val dampingR
     CINEMATIC("Sinematik", 210f, 0.85f)
 }
 
-enum class WallpaperPreset(val label: String, val subtitle: String) {
-    SYSTEM_LIVE("Wallpaper Asli HP", "Sinkron langsung dengan wallpaper bawaan / live HP Anda"),
-    AURORA("Aurora Safir", "Latar aurora kaca gelap beresolusi tinggi"),
-    PRISM("Kristal Prisma", "Refraksi cahaya kristal lembut untuk frosted glass"),
-    DUSK("Senja Alpin", "Gradasi senja atmosferik tenang"),
-    OBSIDIAN_MESH("Obsidian Kaca", "Mesh gelap minimalis hemat baterai AMOLED")
+enum class WallpaperCategory(val label: String) {
+    ALL("Semua"),
+    LIVE("Live Animasi"),
+    GLASS("Liquid Glass"),
+    HD_GALLERY("HD & Galeri")
 }
+
+enum class WallpaperPreset(
+    val label: String,
+    val subtitle: String,
+    val category: WallpaperCategory,
+    val isLive: Boolean = false
+) {
+    // Live 60fps Animated Wallpapers
+    LIVE_AURORA_WAVE(
+        "Aurora Cair Live",
+        "Gelombang aurora kaca bercahaya bergerak lembut real-time",
+        WallpaperCategory.LIVE,
+        isLive = true
+    ),
+    LIVE_NEBULA_ORBS(
+        "Nebula Kosmik Live",
+        "Bola plasma kromatik & taburan bintang kosmik hidup",
+        WallpaperCategory.LIVE,
+        isLive = true
+    ),
+    LIVE_LIQUID_LAVA(
+        "Lava Kaca Live",
+        "Cairan kaca amber & indigo mengalir dinamis modern",
+        WallpaperCategory.LIVE,
+        isLive = true
+    ),
+    LIVE_CYBER_GRID(
+        "Horizon Neon 3D",
+        "Grid perspektif futuristik dengan matahari neon bergerak",
+        WallpaperCategory.LIVE,
+        isLive = true
+    ),
+    LIVE_RAIN_GLASS(
+        "Hujan di Kaca Live",
+        "Tetes hujan & pantulan bokeh malam mengalir di kaca",
+        WallpaperCategory.LIVE,
+        isLive = true
+    ),
+    LIVE_SOLAR_DYNAMIC(
+        "Langit Waktu Nyata",
+        "Berubah otomatis mengikuti jam HP (Pagi, Siang, Senja, Malam)",
+        WallpaperCategory.LIVE,
+        isLive = true
+    ),
+
+    // Liquid Glass & Architectural Glass Wallpapers
+    GLASS_REFRACTION(
+        "Refraksi Kaca Bergaris",
+        "Lensa kaca bergaris vertikal dengan bias pelangi safir",
+        WallpaperCategory.GLASS,
+        isLive = true
+    ),
+    GLASS_PRISM_BLOOM(
+        "Prisma Kristal Kaca",
+        "Kelopak kristal transparan berkilau lembut untuk ikon kaca",
+        WallpaperCategory.GLASS,
+        isLive = true
+    ),
+
+    // High-Res Bundled & Custom Gallery / System Wallpapers
+    AURORA(
+        "Aurora Safir HD",
+        "Latar aurora kaca gelap beresolusi tinggi",
+        WallpaperCategory.HD_GALLERY
+    ),
+    PRISM(
+        "Kristal Prisma HD",
+        "Refraksi cahaya kristal lembut untuk frosted glass",
+        WallpaperCategory.HD_GALLERY
+    ),
+    DUSK(
+        "Senja Alpin HD",
+        "Gradasi senja atmosferik tenang beresolusi tinggi",
+        WallpaperCategory.HD_GALLERY
+    ),
+    OBSIDIAN_MESH(
+        "Obsidian AMOLED",
+        "Mesh gelap minimalis hemat baterai layar AMOLED",
+        WallpaperCategory.GLASS
+    ),
+    CUSTOM_PHOTO(
+        "Foto Galeri HP",
+        "Gunakan foto pilihan dari galeri + efek kaca, blur & bokeh",
+        WallpaperCategory.HD_GALLERY
+    ),
+    SYSTEM_LIVE(
+        "Wallpaper Asli HP",
+        "Sinkron langsung dengan wallpaper bawaan / live HP Anda",
+        WallpaperCategory.HD_GALLERY
+    )
+}
+
+enum class WallpaperGlassStyle(val label: String, val subtitle: String) {
+    NONE("Jernih Asli", "Tanpa lapisan efek kaca tambahan"),
+    FROSTED_GLASS("Kaca Buram (Frost)", "Lapisan embun kaca halus ala iOS Liquid"),
+    FLUTED_REEDED("Kaca Bergaris (Fluted)", "Efek lensa kaca arsitektural bergaris vertikal"),
+    PRISM_CRYSTAL("Faset Prisma", "Bias cahaya diagonal kristal modern"),
+    RAIN_DROPLETS("Embun Tetes Kaca", "Tetes embun kaca transparan yang estetik"),
+    LIQUID_SHIMMER("Kilau Kaca Cair", "Kilauan cahaya bergerak halus melintasi layar")
+}
+
+enum class WallpaperParticleOverlay(val label: String) {
+    NONE("Tanpa Partikel"),
+    STARDUST("Debu Bintang"),
+    BOKEH_ORBS("Bokeh Cahaya"),
+    FIREFLIES("Kunang Neon"),
+    SNOW_CRYSTAL("Kristal Salju")
+}
+
+enum class WallpaperColorTone(val label: String, val tint: Color) {
+    NATURAL("Natural", Color.Transparent),
+    COOL_SAPPHIRE("Safir Dingin", Color(0xFF0EA5E9)),
+    WARM_SUNSET("Senja Hangat", Color(0xFFF59E0B)),
+    ROSE_DREAM("Mawar Pastel", Color(0xFFF43F5E)),
+    EMERALD_MIST("Kabut Zamrud", Color(0xFF10B981)),
+    MONOCHROME_NOIR("Noir Monokrom", Color(0xFF0F172A))
+}
+
+data class WallpaperConfig(
+    val preset: WallpaperPreset = WallpaperPreset.LIVE_AURORA_WAVE,
+    val customImagePath: String = "",
+    val glassStyle: WallpaperGlassStyle = WallpaperGlassStyle.FROSTED_GLASS,
+    val glassIntensity: Float = 0.35f,
+    val blurRadiusDp: Float = 0f,
+    val dimAlpha: Float = 0.16f,
+    val particleOverlay: WallpaperParticleOverlay = WallpaperParticleOverlay.STARDUST,
+    val colorTone: WallpaperColorTone = WallpaperColorTone.NATURAL,
+    val parallaxEnabled: Boolean = true,
+    val parallaxStrength: Float = 0.60f,
+    val liveSpeed: Float = 1.0f
+)
 
 enum class SidebarSide(val label: String) {
     LEFT("Sisi Kiri"),
@@ -209,6 +428,7 @@ fun defaultQuickModules(): List<QuickModuleConfig> = listOf(
     QuickModuleConfig(QuickModuleType.BLUETOOTH, true, 0.31f, 78),
     QuickModuleConfig(QuickModuleType.FLASHLIGHT, true, 0.31f, 78),
     QuickModuleConfig(QuickModuleType.DND, true, 0.31f, 78),
+    QuickModuleConfig(QuickModuleType.RINGER_MODE, true, 0.48f, 74),
     QuickModuleConfig(QuickModuleType.ROTATION, true, 0.48f, 74),
     QuickModuleConfig(QuickModuleType.LOCK_SCREEN, true, 0.48f, 74),
     QuickModuleConfig(QuickModuleType.SCREENSHOT, true, 0.48f, 74),
@@ -232,11 +452,18 @@ fun defaultSidebarItems(): List<SidebarItemConfig> = listOf(
 )
 
 fun defaultHomeWidgetPlacements(): List<HomeWidgetPlacement> = listOf(
-    HomeWidgetPlacement("w_clock_0", pageIndex = 0, builtInType = WidgetType.CLOCK_WEATHER, heightDp = 128),
-    HomeWidgetPlacement("w_notif_0", pageIndex = 0, builtInType = WidgetType.LIVE_NOTIFICATIONS, heightDp = 160),
-    HomeWidgetPlacement("w_battery_1", pageIndex = 1, builtInType = WidgetType.BATTERY_SYSTEM, heightDp = 124),
-    HomeWidgetPlacement("w_storage_1", pageIndex = 1, builtInType = WidgetType.STORAGE_RAM, heightDp = 132),
-    HomeWidgetPlacement("w_calendar_2", pageIndex = 2, builtInType = WidgetType.CALENDAR_MINI, heightDp = 124)
+    HomeWidgetPlacement("w_clock_0", pageIndex = 0, builtInType = WidgetType.CLOCK_WEATHER, widthPercent = 1.0f, heightDp = 128),
+    HomeWidgetPlacement("w_notif_0", pageIndex = 0, builtInType = WidgetType.LIVE_NOTIFICATIONS, widthPercent = 1.0f, heightDp = 156),
+    HomeWidgetPlacement("w_analog_1", pageIndex = 1, builtInType = WidgetType.ANALOG_CLOCK, widthPercent = 0.48f, heightDp = 152),
+    HomeWidgetPlacement("w_battery_1", pageIndex = 1, builtInType = WidgetType.BATTERY_SYSTEM, widthPercent = 0.48f, heightDp = 152),
+    HomeWidgetPlacement("w_media_1", pageIndex = 1, builtInType = WidgetType.MEDIA_WAVEFORM, widthPercent = 1.0f, heightDp = 136),
+    HomeWidgetPlacement("w_world_2", pageIndex = 2, builtInType = WidgetType.WORLD_CLOCK, widthPercent = 1.0f, heightDp = 124),
+    HomeWidgetPlacement("w_storage_2", pageIndex = 2, builtInType = WidgetType.STORAGE_RAM, widthPercent = 1.0f, heightDp = 132)
+)
+
+fun defaultLockWidgets(): List<HomeWidgetPlacement> = listOf(
+    HomeWidgetPlacement("lw_weather_0", pageIndex = 0, builtInType = WidgetType.WEATHER_PRO, widthPercent = 0.48f, heightDp = 96),
+    HomeWidgetPlacement("lw_battery_0", pageIndex = 0, builtInType = WidgetType.BATTERY_SYSTEM, widthPercent = 0.48f, heightDp = 96)
 )
 
 data class LauncherConfig(
@@ -249,22 +476,29 @@ data class LauncherConfig(
     val showDockLabels: Boolean = false,
     val pinnedDockPackages: List<String> = emptyList(),
 
-    // 2. Widgets (Built-in Glass + Real Android AppWidgets)
+    // 2. Widgets (14 Modern Glass + Real Android AppWidgets + DIY Layout)
     val widgetStackMode: WidgetStackMode = WidgetStackMode.SMART_STACK,
     val enabledWidgets: List<WidgetType> = listOf(
         WidgetType.CLOCK_WEATHER,
+        WidgetType.ANALOG_CLOCK,
+        WidgetType.MEDIA_WAVEFORM,
+        WidgetType.WEATHER_PRO,
         WidgetType.BATTERY_SYSTEM,
-        WidgetType.FOCUS_MEDIA,
-        WidgetType.CALENDAR_MINI,
+        WidgetType.WORLD_CLOCK,
         WidgetType.LIVE_NOTIFICATIONS,
         WidgetType.STORAGE_RAM,
+        WidgetType.CALENDAR_MINI,
         WidgetType.QUICK_NOTE
     ),
     val homeWidgets: List<HomeWidgetPlacement> = defaultHomeWidgetPlacements(),
+    val lockWidgets: List<HomeWidgetPlacement> = defaultLockWidgets(),
     val widgetGlassOpacity: Float = 0.22f,
-    val quickNoteText: String = "Ketuk 2x layar beranda untuk mengunci HP, atau buka Sidebar untuk atur tampilan.",
+    val quickNoteText: String = "Tekan lama widget atau pencarian untuk mode DIY bebas atur ukuran & posisi!",
 
-    // 3. Quick Panel (Pure iPhone Glass Control Center - Zero Settings Inside!)
+    // 3. Universal Customizable Search Bar (Home + App Drawer + Studio)
+    val searchBar: SearchBarConfig = SearchBarConfig(),
+
+    // 4. Quick Panel (Live Horizontal/Vertical & Direct Instant Modules)
     val quickPanelOrientation: QuickPanelOrientation = QuickPanelOrientation.VERTICAL_IOS,
     val quickPanelGlassOpacity: Float = 0.26f,
     val quickModules: List<QuickModuleConfig> = defaultQuickModules(),
@@ -275,10 +509,10 @@ data class LauncherConfig(
     val replaceSystemControlPanel: Boolean = true,
     val edgeTriggerZone: EdgePanelTriggerZone = EdgePanelTriggerZone.TOP_RIGHT,
 
-    // 4. Dynamic Island (Fully Customizable)
+    // 5. Dynamic Island (iPhone 18 Pro Max Dynamic Expanding/Collapsing)
     val dynamicIsland: DynamicIslandConfig = DynamicIslandConfig(),
 
-    // 5. Status Indicators (Hide native status bar to eliminate overlap!)
+    // 6. Status Indicators (Hide native status bar to eliminate overlap)
     val hideSystemStatusBar: Boolean = true,
     val statusPosition: StatusIndicatorPosition = StatusIndicatorPosition.TOP_STATUS_BAR,
     val statusAlignment: StatusSlotAlignment = StatusSlotAlignment.CLASSIC_SPLIT,
@@ -288,30 +522,39 @@ data class LauncherConfig(
     val showWifiIndicator: Boolean = true,
     val showBatteryPercent: Boolean = true,
 
-    // 6. Pop-Up Styles (Home & Lock Screen)
+    // 7. Native Notification Replacement & Aesthetic Notification Sounds
+    val replaceSystemNotifications: Boolean = true,
+    val showSystemWideDynamicIsland: Boolean = true,
+    val activeNotifSoundId: String = BuiltInNotifSound.CRYSTAL_DEW.id,
+    val customNotifSounds: List<CustomNotificationSound> = emptyList(),
     val homePopupStyle: PopupStyle = PopupStyle.DYNAMIC_ISLAND,
     val lockPopupStyle: PopupStyle = PopupStyle.STACKED_DECK,
     val popupCornerRadius: Float = 26f,
     val popupGlassOpacity: Float = 0.30f,
 
-    // 7. Pages, Double-Tap Lock & Lock Screen Security Passcode
+    // 8. Pages, Double-Tap Lock, Adaptive Lock Clock & Security Passcode
     val homePageCount: Int = 3,
     val homeGridColumns: Int = 4,
     val homeGridRows: Int = 5,
     val homePageScale: Float = 1.0f,
     val lockPageCount: Int = 3,
+    val lockClockStyle: LockClockStyle = LockClockStyle.ADAPTIVE_LIQUID,
+    val lockClockColor: LockClockColor = LockClockColor.PURE_WHITE,
     val lockClockScale: Float = 1.0f,
+    val lockClockVerticalOffsetDp: Float = 0f,
+    val lockClockWeight: Int = 700,
     val lockPageScale: Float = 1.0f,
+    val replaceSystemLockScreen: Boolean = true,
     val doubleTapToLock: Boolean = true,
     val lockSecurityMode: LockSecurityMode = LockSecurityMode.NONE,
     val lockPasscodeHash: String = "",
     val lockPasscodeLength: Int = 4,
 
-    // 8. Page Transitions
+    // 9. Page Transitions
     val pageTransitionStyle: PageTransitionStyle = PageTransitionStyle.FLUID_GLASS,
     val transitionSpeed: TransitionSpeed = TransitionSpeed.BALANCED,
 
-    // 9. Customizable Glassy Sidebar v7
+    // 10. Customizable Glassy Sidebar v7
     val showGlassySidebar: Boolean = true,
     val sidebarSide: SidebarSide = SidebarSide.LEFT,
     val sidebarWidthDp: Float = 228f,
@@ -319,9 +562,24 @@ data class LauncherConfig(
     val sidebarItems: List<SidebarItemConfig> = defaultSidebarItems(),
     val ambientGlowIntensity: Float = 0.80f,
 
-    // 10. Visual Theme
-    val wallpaperPreset: WallpaperPreset = WallpaperPreset.AURORA
-)
+    // 11. Visual Theme & Modern Wallpaper Engine (Home & Optional Separate Lock Screen)
+    val wallpaperPreset: WallpaperPreset = WallpaperPreset.AURORA,
+    val wallpaperConfig: WallpaperConfig = WallpaperConfig(
+        preset = WallpaperPreset.AURORA,
+        glassStyle = WallpaperGlassStyle.NONE,
+        particleOverlay = WallpaperParticleOverlay.NONE
+    ),
+    val separateLockWallpaper: Boolean = false,
+    val lockWallpaperConfig: WallpaperConfig = WallpaperConfig(
+        preset = WallpaperPreset.LIVE_AURORA_WAVE,
+        glassStyle = WallpaperGlassStyle.FROSTED_GLASS,
+        particleOverlay = WallpaperParticleOverlay.STARDUST
+    )
+) {
+    fun effectiveHomeWallpaper(): WallpaperConfig = wallpaperConfig
+    fun effectiveLockWallpaper(): WallpaperConfig =
+        if (separateLockWallpaper) lockWallpaperConfig else wallpaperConfig
+}
 
 data class InstalledApp(
     val packageName: String,
@@ -376,6 +634,7 @@ data class DeviceTelemetry(
     val brightnessFraction: Float = 0.72f,
     val isFlashlightOn: Boolean = false,
     val isDndEnabled: Boolean = false,
+    val ringerMode: Int = AudioManager.RINGER_MODE_NORMAL,
     val isAutoRotateEnabled: Boolean = true,
     val isBluetoothOn: Boolean = false,
     val isAirplaneModeOn: Boolean = false,

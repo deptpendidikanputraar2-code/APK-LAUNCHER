@@ -3,7 +3,6 @@ package com.example.launcher
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -25,23 +24,26 @@ import com.example.launcher.data.SystemMonitor
 import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.QuickModuleType
+import com.example.launcher.model.QuickPanelOrientation
 import com.example.launcher.system.NotificationHub
 import com.example.launcher.system.SystemSyncChecker
 import com.example.launcher.system.VitroAccessibilityService
 import com.example.launcher.ui.components.QuickPanelOverlay
 import com.example.launcher.viewmodel.LauncherUiOverlays
 import com.example.ui.theme.VitroLauncherTheme
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
  * Translucent system-wide Control Center overlay Activity.
- * Launched by [com.example.launcher.system.VitroEdgeControlManager] when the user swipes down
- * from the top edge over any app on the phone, replacing the native Quick Settings shade.
+ * Launched by [com.example.launcher.system.VitroEdgeControlManager] when swiping down
+ * from the top edge over any app on the phone.
  */
 class QuickPanelActivity : ComponentActivity() {
 
     private var hideStatusBarPref: Boolean = true
+    private var toastJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,6 +66,7 @@ class QuickPanelActivity : ComponentActivity() {
             val telemetry by systemMonitor.observeTelemetry().collectAsStateWithLifecycle(initialValue = DeviceTelemetry())
             val nowPlaying by NotificationHub.nowPlaying.collectAsStateWithLifecycle()
             var localPlaying by remember { mutableStateOf(false) }
+            var feedbackToast by remember { mutableStateOf<String?>(null) }
 
             LaunchedEffect(config.hideSystemStatusBar) {
                 hideStatusBarPref = config.hideSystemStatusBar
@@ -76,6 +79,20 @@ class QuickPanelActivity : ComponentActivity() {
                 window.attributes = params
             }
 
+            fun saveConfigUpdate(transform: (LauncherConfig) -> LauncherConfig) {
+                val updated = transform(config)
+                lifecycleScope.launch { prefsRepo.saveConfig(updated) }
+            }
+
+            fun showToast(msg: String) {
+                toastJob?.cancel()
+                feedbackToast = msg
+                toastJob = lifecycleScope.launch {
+                    delay(2_200L)
+                    feedbackToast = null
+                }
+            }
+
             VitroLauncherTheme {
                 QuickPanelOverlay(
                     visible = true,
@@ -86,26 +103,81 @@ class QuickPanelActivity : ComponentActivity() {
                         isMediaPlaying = localPlaying || nowPlaying.isPlaying
                     ),
                     nowPlaying = nowPlaying,
+                    feedbackToast = feedbackToast,
                     onDismiss = { dismissSmoothly() },
                     onModuleClick = { type ->
-                        handleModuleAction(type, systemMonitor)
+                        when (type) {
+                            QuickModuleType.SCREENSHOT -> {
+                                dismissSmoothly()
+                                lifecycleScope.launch {
+                                    delay(280L)
+                                    if (!VitroAccessibilityService.takeScreenshot()) {
+                                        SystemSyncChecker.openAccessibilitySettings(applicationContext)
+                                    }
+                                }
+                            }
+                            QuickModuleType.CAMERA -> {
+                                systemMonitor.openCameraApp()
+                                dismissSmoothly()
+                            }
+                            QuickModuleType.LOCK_SCREEN -> {
+                                dismissSmoothly()
+                                if (!VitroAccessibilityService.lockPhoneScreen()) {
+                                    SystemSyncChecker.openAccessibilitySettings(applicationContext)
+                                }
+                            }
+                            else -> {
+                                val msg = systemMonitor.handleDirectInstantToggle(type, telemetry)
+                                showToast(msg)
+                            }
+                        }
                     },
-                    onBrightnessChange = { fraction ->
-                        systemMonitor.setBrightnessFraction(fraction)
+                    onModuleLongPress = { type ->
+                        systemMonitor.openModuleDetailSettings(type)
                     },
-                    onVolumeChange = { fraction ->
-                        systemMonitor.setMediaVolume(fraction)
+                    onToggleOrientation = {
+                        saveConfigUpdate { cur ->
+                            val next = if (cur.quickPanelOrientation == QuickPanelOrientation.VERTICAL_IOS) {
+                                QuickPanelOrientation.HORIZONTAL_STRIP
+                            } else QuickPanelOrientation.VERTICAL_IOS
+                            cur.copy(quickPanelOrientation = next)
+                        }
                     },
+                    onUpdateModuleSize = { type, widthPct, heightDp ->
+                        saveConfigUpdate { cur ->
+                            cur.copy(
+                                quickModules = cur.quickModules.map { m ->
+                                    if (m.type == type) {
+                                        m.copy(
+                                            widthPercent = widthPct.coerceIn(0.23f, 1.0f),
+                                            heightDp = heightDp.coerceIn(56, 220)
+                                        )
+                                    } else m
+                                }
+                            )
+                        }
+                    },
+                    onMoveModule = { type, moveUp ->
+                        saveConfigUpdate { cur ->
+                            val list = cur.quickModules.toMutableList()
+                            val idx = list.indexOfFirst { it.type == type }
+                            if (idx == -1) return@saveConfigUpdate cur
+                            val target = if (moveUp) (idx - 1).coerceAtLeast(0) else (idx + 1).coerceAtMost(list.lastIndex)
+                            if (idx != target) {
+                                val item = list.removeAt(idx)
+                                list.add(target, item)
+                            }
+                            cur.copy(quickModules = list)
+                        }
+                    },
+                    onBrightnessChange = { systemMonitor.setBrightnessFraction(it) },
+                    onVolumeChange = { systemMonitor.setMediaVolume(it) },
                     onMediaPlayPause = {
                         systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
                         localPlaying = !localPlaying
                     },
-                    onMediaNext = {
-                        systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
-                    },
-                    onMediaPrev = {
-                        systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-                    }
+                    onMediaNext = { systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT) },
+                    onMediaPrev = { systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS) }
                 )
             }
         }
@@ -113,72 +185,15 @@ class QuickPanelActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) {
-            applyStatusBarVisibility(hideStatusBarPref)
-        }
+        if (hasFocus) applyStatusBarVisibility(hideStatusBarPref)
     }
 
     private fun applyStatusBarVisibility(hide: Boolean) {
         val controller = WindowCompat.getInsetsController(window, window.decorView)
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        if (hide) {
-            controller.hide(WindowInsetsCompat.Type.statusBars())
-        } else {
-            controller.show(WindowInsetsCompat.Type.statusBars())
-        }
-    }
-
-    private fun handleModuleAction(type: QuickModuleType, systemMonitor: SystemMonitor) {
-        when (type) {
-            QuickModuleType.WIFI -> systemMonitor.openWifiPanel()
-            QuickModuleType.CELLULAR -> {
-                systemMonitor.openSystemSettings(Settings.ACTION_DATA_ROAMING_SETTINGS)
-                dismissSmoothly()
-            }
-            QuickModuleType.BLUETOOTH -> {
-                systemMonitor.openSystemSettings(Settings.ACTION_BLUETOOTH_SETTINGS)
-                dismissSmoothly()
-            }
-            QuickModuleType.FLASHLIGHT -> systemMonitor.toggleFlashlight()
-            QuickModuleType.DND -> systemMonitor.toggleDndReal()
-            QuickModuleType.ROTATION -> systemMonitor.toggleAutoRotateReal()
-            QuickModuleType.AIRPLANE -> {
-                systemMonitor.openSystemSettings(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
-                dismissSmoothly()
-            }
-            QuickModuleType.HOTSPOT -> {
-                systemMonitor.openSystemSettings(Settings.ACTION_WIRELESS_SETTINGS)
-                dismissSmoothly()
-            }
-            QuickModuleType.LOCATION -> {
-                systemMonitor.openSystemSettings(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
-                dismissSmoothly()
-            }
-            QuickModuleType.BATTERY_SAVER -> {
-                systemMonitor.openSystemSettings(Settings.ACTION_BATTERY_SAVER_SETTINGS)
-                dismissSmoothly()
-            }
-            QuickModuleType.SCREENSHOT -> {
-                dismissSmoothly()
-                lifecycleScope.launch {
-                    delay(280L)
-                    if (!VitroAccessibilityService.takeScreenshot()) {
-                        SystemSyncChecker.openAccessibilitySettings(applicationContext)
-                    }
-                }
-            }
-            QuickModuleType.CAMERA -> {
-                systemMonitor.openCameraApp()
-                dismissSmoothly()
-            }
-            QuickModuleType.LOCK_SCREEN -> {
-                dismissSmoothly()
-                if (!VitroAccessibilityService.lockPhoneScreen()) {
-                    SystemSyncChecker.openAccessibilitySettings(applicationContext)
-                }
-            }
-        }
+        if (hide) controller.hide(WindowInsetsCompat.Type.statusBars())
+        else controller.show(WindowInsetsCompat.Type.statusBars())
     }
 
     private fun dismissSmoothly() {
