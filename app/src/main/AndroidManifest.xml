@@ -4,11 +4,19 @@
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
         </intent>
     </queries>
 
@@ -21,6 +29,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -35,6 +44,42 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Translucent System-Wide Control Panel Activity (replaces native HP control panel from edge swipe) -->
+        <activity
+            android:name=".launcher.QuickPanelActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.VitroQuickPanelOverlay" />
+
+        <!-- Real Notification Listener for Home Screen, Lock Screen & Dynamic Island -->
+        <service
+            android:name=".launcher.system.VitroNotificationListenerService"
+            android:exported="true"
+            android:label="@string/notification_service_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Real Accessibility Service for Double-Tap-to-Lock HP Screen & Screenshot -->
+        <service
+            android:name=".launcher.system.VitroAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/vitro_accessibility_config" />
+        </service>
+
     </application>
 
 </manifest>

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,14 +31,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.Dock
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ViewCarousel
+import androidx.compose.material.icons.rounded.ViewSidebar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -56,10 +60,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
-import com.example.launcher.model.ModuleSize
+import com.example.launcher.model.LockSecurityMode
 import com.example.launcher.model.QuickModuleType
+import com.example.launcher.model.SystemSyncStatus
 import com.example.launcher.model.WidgetType
+import com.example.launcher.system.AvailableAndroidWidget
 import com.example.launcher.ui.components.VitroGlassContainer
 import com.example.launcher.ui.components.bouncyClickable
 import com.example.ui.theme.VitroCyanAccent
@@ -67,12 +74,15 @@ import com.example.ui.theme.VitroTextPrimary
 import com.example.ui.theme.VitroTextSecondary
 
 private enum class StudioCategory(val label: String, val icon: ImageVector) {
+    SYNC("Sinkron HP", Icons.Rounded.PhoneAndroid),
     DOCK("Dock Bar", Icons.Rounded.Dock),
     WIDGETS("Widget", Icons.Rounded.DashboardCustomize),
     QUICK_PANEL("Quick Panel", Icons.Rounded.Tune),
+    DYNAMIC_ISLAND("Dynamic Island", Icons.Rounded.AutoAwesome),
+    SIDEBAR("Sidebar", Icons.Rounded.ViewSidebar),
     STATUS("Indikator", Icons.Rounded.SignalCellularAlt),
     POPUP("Pop-Up", Icons.Rounded.NotificationsActive),
-    PAGES("Halaman", Icons.Rounded.ViewCarousel),
+    PAGES("Halaman & Sandi", Icons.Rounded.ViewCarousel),
     TRANSITION("Transisi", Icons.Rounded.Animation),
     THEME("Tema", Icons.Rounded.Palette)
 }
@@ -81,20 +91,42 @@ private enum class StudioCategory(val label: String, val icon: ImageVector) {
 fun CustomizationStudioOverlay(
     visible: Boolean,
     config: LauncherConfig,
+    installedApps: List<InstalledApp>,
+    availableAndroidWidgets: List<AvailableAndroidWidget>,
+    syncStatus: SystemSyncStatus,
     onDismiss: () -> Unit,
     onUpdateConfig: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    onRefreshSyncStatus: () -> Unit,
+    onAddDockApp: (String) -> Unit,
+    onRemoveDockApp: (String) -> Unit,
+    onMoveDockApp: (String, Boolean) -> Unit,
     onToggleWidget: (WidgetType) -> Unit,
     onMoveWidget: (WidgetType, Boolean) -> Unit,
+    onAddBuiltInWidget: (WidgetType, Int) -> Unit,
+    onPickAndroidWidget: (AvailableAndroidWidget, Int) -> Unit,
+    onRemoveHomeWidget: (String) -> Unit,
+    onResizeHomeWidget: (String, Int) -> Unit,
     onToggleQuickModule: (QuickModuleType) -> Unit,
-    onSetQuickModuleSize: (QuickModuleType, ModuleSize) -> Unit,
+    onUpdateQuickModuleSize: (QuickModuleType, Float, Int) -> Unit,
+    onMoveQuickModule: (QuickModuleType, Boolean) -> Unit,
+    onToggleSidebarItem: (String) -> Unit,
+    onMoveSidebarItem: (String, Boolean) -> Unit,
+    onAddAppToSidebar: (String) -> Unit,
+    onRemoveSidebarItem: (String) -> Unit,
+    onSetLockPasscode: (LockSecurityMode, String) -> Unit,
     onPreviewQuickPanel: () -> Unit,
     onPreviewHomePopup: () -> Unit,
     onPreviewLockPopup: () -> Unit,
     onPreviewLockScreen: () -> Unit,
-    onSetDefaultLauncher: () -> Unit,
+    onOpenDefaultLauncher: () -> Unit,
+    onOpenNotificationAccess: () -> Unit,
+    onOpenAccessibility: () -> Unit,
+    onOpenOverlayPermission: () -> Unit,
+    onOpenWriteSettings: () -> Unit,
+    onOpenDndPolicy: () -> Unit,
     onResetDefaults: () -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(StudioCategory.DOCK) }
+    var selectedTab by remember { mutableStateOf(StudioCategory.SYNC) }
 
     AnimatedVisibility(
         visible = visible,
@@ -108,11 +140,17 @@ fun CustomizationStudioOverlay(
     ) {
         BackHandler(onBack = onDismiss)
 
+        val safeTop = if (config.hideSystemStatusBar) {
+            Modifier.displayCutoutPadding().padding(top = 6.dp)
+        } else {
+            Modifier.statusBarsPadding()
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xE0060B18))
-                .statusBarsPadding()
+                .background(Color(0xEB060B18))
+                .then(safeTop)
                 .navigationBarsPadding()
                 .testTag("customization_studio_overlay"),
             contentAlignment = Alignment.TopCenter
@@ -122,11 +160,10 @@ fun CustomizationStudioOverlay(
                     .widthIn(max = 620.dp)
                     .fillMaxSize()
             ) {
-                // Studio Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -138,14 +175,14 @@ fun CustomizationStudioOverlay(
                         )
                         Text(
                             text = stringResource(R.string.studio_subtitle),
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = VitroTextSecondary
                         )
                     }
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.12f))
                             .testTag("studio_close_button")
@@ -158,7 +195,6 @@ fun CustomizationStudioOverlay(
                     }
                 }
 
-                // Horizontal Glass Category Bar
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 18.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -198,7 +234,6 @@ fun CustomizationStudioOverlay(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Active Tab Scrollable Body
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -208,22 +243,57 @@ fun CustomizationStudioOverlay(
                         .padding(bottom = 28.dp)
                 ) {
                     when (selectedTab) {
+                        StudioCategory.SYNC -> SystemSyncStudioTab(
+                            syncStatus = syncStatus,
+                            onRefreshStatus = onRefreshSyncStatus,
+                            onOpenDefaultLauncher = onOpenDefaultLauncher,
+                            onOpenNotificationAccess = onOpenNotificationAccess,
+                            onOpenAccessibility = onOpenAccessibility,
+                            onOpenOverlayPermission = onOpenOverlayPermission,
+                            onOpenWriteSettings = onOpenWriteSettings,
+                            onOpenDndPolicy = onOpenDndPolicy
+                        )
                         StudioCategory.DOCK -> DockStudioTab(
                             config = config,
-                            onUpdate = onUpdateConfig
+                            installedApps = installedApps,
+                            onUpdate = onUpdateConfig,
+                            onAddDockApp = onAddDockApp,
+                            onRemoveDockApp = onRemoveDockApp,
+                            onMoveDockApp = onMoveDockApp
                         )
                         StudioCategory.WIDGETS -> WidgetStudioTab(
                             config = config,
+                            availableAndroidWidgets = availableAndroidWidgets,
                             onUpdate = onUpdateConfig,
                             onToggleWidget = onToggleWidget,
-                            onMoveWidget = onMoveWidget
+                            onMoveWidget = onMoveWidget,
+                            onAddBuiltInWidget = onAddBuiltInWidget,
+                            onPickAndroidWidget = onPickAndroidWidget,
+                            onRemoveHomeWidget = onRemoveHomeWidget,
+                            onResizeHomeWidget = onResizeHomeWidget
                         )
                         StudioCategory.QUICK_PANEL -> QuickPanelStudioTab(
                             config = config,
+                            isOverlayGranted = syncStatus.isOverlayPermissionGranted,
                             onUpdate = onUpdateConfig,
                             onToggleModule = onToggleQuickModule,
-                            onSetModuleSize = onSetQuickModuleSize,
-                            onPreviewQuickPanel = onPreviewQuickPanel
+                            onUpdateModuleSize = onUpdateQuickModuleSize,
+                            onMoveModule = onMoveQuickModule,
+                            onPreviewQuickPanel = onPreviewQuickPanel,
+                            onOpenOverlayPermission = onOpenOverlayPermission
+                        )
+                        StudioCategory.DYNAMIC_ISLAND -> DynamicIslandStudioTab(
+                            config = config,
+                            onUpdate = onUpdateConfig
+                        )
+                        StudioCategory.SIDEBAR -> SidebarStudioTab(
+                            config = config,
+                            installedApps = installedApps,
+                            onUpdate = onUpdateConfig,
+                            onToggleSidebarItem = onToggleSidebarItem,
+                            onMoveSidebarItem = onMoveSidebarItem,
+                            onAddAppToSidebar = onAddAppToSidebar,
+                            onRemoveSidebarItem = onRemoveSidebarItem
                         )
                         StudioCategory.STATUS -> StatusIndicatorStudioTab(
                             config = config,
@@ -237,7 +307,10 @@ fun CustomizationStudioOverlay(
                         )
                         StudioCategory.PAGES -> PagesStudioTab(
                             config = config,
+                            isAccessibilityGranted = syncStatus.isAccessibilityEnabled,
                             onUpdate = onUpdateConfig,
+                            onSetLockPasscode = onSetLockPasscode,
+                            onOpenAccessibilitySettings = onOpenAccessibility,
                             onPreviewLockScreen = onPreviewLockScreen
                         )
                         StudioCategory.TRANSITION -> TransitionStudioTab(
@@ -247,7 +320,7 @@ fun CustomizationStudioOverlay(
                         StudioCategory.THEME -> ThemeWallpaperStudioTab(
                             config = config,
                             onUpdate = onUpdateConfig,
-                            onSetDefaultLauncher = onSetDefaultLauncher,
+                            onSetDefaultLauncher = onOpenDefaultLauncher,
                             onResetDefaults = onResetDefaults
                         )
                     }

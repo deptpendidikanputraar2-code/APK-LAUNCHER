@@ -15,6 +15,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,11 +45,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ControlCamera
+import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.material.icons.rounded.PhonelinkLock
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Icon
@@ -68,10 +72,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,6 +86,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.HomeNavTab
+import com.example.launcher.model.InstalledApp
+import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.SidebarItemType
 import com.example.launcher.model.SidebarSide
 import com.example.ui.theme.VitroAmber
 import com.example.ui.theme.VitroCoral
@@ -92,28 +101,28 @@ import com.example.ui.theme.VitroTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private data class CurvedSidebarItem(
+private data class ResolvedSidebarItem(
     val id: String,
     val label: String,
     val icon: ImageVector,
+    val appIcon: ImageBitmap? = null,
     val accent: Color,
     val navTab: HomeNavTab? = null,
+    val keepOpenOnClick: Boolean = false,
     val action: () -> Unit
 )
 
 /**
- * Single continuous upward-expanding Glassmorphism Sidebar anchored cleanly above the Dock Bar.
- * - Closed state: sleek, aesthetic glowing frosted-glass pill.
- * - Clicked state: stretches smoothly UPWARD ("memanjang ke atas") with spring physics into a
- *   vertical glass sidebar featuring an animated Curved Outside Active Tab (inverse-fillet concave curves).
+ * Fully customizable Upward-Expanding Curved-Outside Active Tab Glassmorphism Sidebar.
+ * Users can toggle, reorder, and add ANY installed Android app inside Studio Vitro → Sidebar.
  */
 @Composable
 fun UpwardCurvedGlassSidebar(
     isOpen: Boolean,
-    sidebarSide: SidebarSide,
+    config: LauncherConfig,
+    installedApps: List<InstalledApp>,
     bottomClearance: Dp,
     activeNavTab: HomeNavTab,
-    glowIntensity: Float,
     telemetry: DeviceTelemetry,
     onToggleOpen: (Boolean) -> Unit,
     onSelectHome: () -> Unit,
@@ -121,44 +130,102 @@ fun UpwardCurvedGlassSidebar(
     onOpenQuickPanel: () -> Unit,
     onOpenAppDrawer: () -> Unit,
     onTriggerPopup: () -> Unit,
+    onToggleFlashlight: () -> Unit,
     onEnterLockScreen: () -> Unit,
-    onOpenStudio: () -> Unit
+    onLockPhoneNow: () -> Unit,
+    onOpenStudio: () -> Unit,
+    onLaunchAppPackage: (String) -> Unit
 ) {
     if (isOpen) {
         BackHandler { onToggleOpen(false) }
     }
 
     val scope = rememberCoroutineScope()
-    val isLeft = sidebarSide == SidebarSide.LEFT
+    val isLeft = config.sidebarSide == SidebarSide.LEFT
 
     val menuItems = remember(
-        onSelectHome, onCycleWidget, onOpenQuickPanel, onOpenAppDrawer,
-        onTriggerPopup, onEnterLockScreen, onOpenStudio
+        config.sidebarItems,
+        installedApps,
+        onSelectHome,
+        onCycleWidget,
+        onOpenQuickPanel,
+        onOpenAppDrawer,
+        onTriggerPopup,
+        onToggleFlashlight,
+        onEnterLockScreen,
+        onLockPhoneNow,
+        onOpenStudio,
+        onLaunchAppPackage
     ) {
-        listOf(
-            CurvedSidebarItem("home", "Beranda", Icons.Rounded.Home, VitroCyanAccent, HomeNavTab.HOME, onSelectHome),
-            CurvedSidebarItem("widgets", "Widget", Icons.Rounded.Widgets, VitroIndigo, null, onCycleWidget),
-            CurvedSidebarItem("panel", "Quick Panel", Icons.Rounded.ControlCamera, VitroSapphire, HomeNavTab.PANEL, onOpenQuickPanel),
-            CurvedSidebarItem("apps", "Aplikasi", Icons.Rounded.Apps, VitroMint, HomeNavTab.APPS, onOpenAppDrawer),
-            CurvedSidebarItem("popup", "Pop-Up", Icons.Rounded.NotificationsActive, VitroAmber, null, onTriggerPopup),
-            CurvedSidebarItem("lock", "Layar Kunci", Icons.Rounded.Lock, VitroCoral, HomeNavTab.LOCK, onEnterLockScreen),
-            CurvedSidebarItem("studio", "Studio", Icons.Rounded.Tune, VitroCyanAccent, HomeNavTab.STUDIO, onOpenStudio)
-        )
+        config.sidebarItems
+            .filter { it.enabled }
+            .mapNotNull { item ->
+                when (item.type) {
+                    SidebarItemType.HOME -> ResolvedSidebarItem(
+                        item.id, "Beranda", Icons.Rounded.Home, null, VitroCyanAccent, HomeNavTab.HOME, false, onSelectHome
+                    )
+                    SidebarItemType.WIDGETS -> ResolvedSidebarItem(
+                        item.id, "Widget", Icons.Rounded.Widgets, null, VitroIndigo, null, true, onCycleWidget
+                    )
+                    SidebarItemType.QUICK_PANEL -> ResolvedSidebarItem(
+                        item.id, "Pusat Kontrol", Icons.Rounded.ControlCamera, null, VitroSapphire, HomeNavTab.PANEL, false, onOpenQuickPanel
+                    )
+                    SidebarItemType.APPS -> ResolvedSidebarItem(
+                        item.id, "Semua Aplikasi", Icons.Rounded.Apps, null, VitroMint, HomeNavTab.APPS, false, onOpenAppDrawer
+                    )
+                    SidebarItemType.NOTIFICATIONS -> ResolvedSidebarItem(
+                        item.id, "Notifikasi", Icons.Rounded.NotificationsActive, null, VitroAmber, null, false, onTriggerPopup
+                    )
+                    SidebarItemType.FLASHLIGHT -> ResolvedSidebarItem(
+                        item.id, "Senter", Icons.Rounded.FlashlightOn, null, VitroAmber, null, true, onToggleFlashlight
+                    )
+                    SidebarItemType.LOCK_SCREEN -> ResolvedSidebarItem(
+                        item.id, "Layar Kunci", Icons.Rounded.Lock, null, VitroCoral, HomeNavTab.LOCK, false, onEnterLockScreen
+                    )
+                    SidebarItemType.LOCK_PHONE -> ResolvedSidebarItem(
+                        item.id, "Kunci HP", Icons.Rounded.PhonelinkLock, null, VitroCoral, null, false, onLockPhoneNow
+                    )
+                    SidebarItemType.STUDIO -> ResolvedSidebarItem(
+                        item.id, "Studio Vitro", Icons.Rounded.Tune, null, VitroCyanAccent, HomeNavTab.STUDIO, false, onOpenStudio
+                    )
+                    SidebarItemType.APP_SHORTCUT -> {
+                        val pkg = item.packageName ?: return@mapNotNull null
+                        val app = installedApps.firstOrNull { it.packageName == pkg }
+                        val label = app?.label ?: pkg.substringAfterLast('.')
+                        ResolvedSidebarItem(
+                            id = item.id,
+                            label = label,
+                            icon = Icons.Rounded.Apps,
+                            appIcon = app?.iconBitmap,
+                            accent = VitroCyanAccent,
+                            navTab = null,
+                            keepOpenOnClick = false,
+                            action = { onLaunchAppPackage(pkg) }
+                        )
+                    }
+                }
+            }
+            .ifEmpty {
+                listOf(
+                    ResolvedSidebarItem("studio_fallback", "Studio Vitro", Icons.Rounded.Tune, null, VitroCyanAccent, HomeNavTab.STUDIO, false, onOpenStudio)
+                )
+            }
     }
 
-    var selectedIndex by remember(activeNavTab) {
+    var selectedIndex by remember(activeNavTab, menuItems.size) {
         val matched = menuItems.indexOfFirst { it.navTab == activeNavTab }
         mutableIntStateOf(if (matched >= 0) matched else 0)
     }
+    val safeSelectedIndex = selectedIndex.coerceIn(0, menuItems.lastIndex)
 
-    // Smooth morphing dimensions: compact aesthetic pill -> stretches smoothly UPWARD into tall glass sidebar
+    val expandedHeight = (108 + menuItems.size * 52).coerceIn(220, 490).dp
     val containerHeight by animateDpAsState(
-        targetValue = if (isOpen) 462.dp else 44.dp,
+        targetValue = if (isOpen) expandedHeight else 44.dp,
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 310f),
         label = "sidebar_upward_height"
     )
     val containerWidth by animateDpAsState(
-        targetValue = if (isOpen) 226.dp else 156.dp,
+        targetValue = if (isOpen) config.sidebarWidthDp.coerceIn(180f, 270f).dp else 156.dp,
         animationSpec = spring(dampingRatio = 0.80f, stiffness = 340f),
         label = "sidebar_upward_width"
     )
@@ -187,7 +254,6 @@ fun UpwardCurvedGlassSidebar(
     var verticalDrag by remember { mutableFloatStateOf(0f) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Gentle dimmed scrim only while expanded — tap anywhere outside to retract smoothly downward
         if (isOpen || scrimAlpha > 0.01f) {
             Box(
                 modifier = Modifier
@@ -203,7 +269,6 @@ fun UpwardCurvedGlassSidebar(
             )
         }
 
-        // Bottom-anchored Morphing Sidebar Container (grows smoothly UPWARD from above the Dock Bar!)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -216,10 +281,11 @@ fun UpwardCurvedGlassSidebar(
             val borderBrush = Brush.linearGradient(
                 colors = listOf(
                     Color.White.copy(alpha = if (isOpen) 0.52f else 0.62f),
-                    VitroCyanAccent.copy(alpha = (0.55f * pulse * glowIntensity.coerceAtLeast(0.35f)).coerceAtMost(0.85f)),
+                    VitroCyanAccent.copy(alpha = (0.55f * pulse * config.ambientGlowIntensity.coerceAtLeast(0.35f)).coerceAtMost(0.85f)),
                     VitroIndigo.copy(alpha = 0.42f)
                 )
             )
+            val panelAlpha = config.sidebarGlassOpacity.coerceIn(0.45f, 0.96f)
 
             Box(
                 modifier = Modifier
@@ -229,9 +295,9 @@ fun UpwardCurvedGlassSidebar(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFF0D1936).copy(alpha = if (isOpen) 0.86f else 0.74f),
-                                Color(0xFF132245).copy(alpha = if (isOpen) 0.82f else 0.66f),
-                                Color(0xFF0A1228).copy(alpha = if (isOpen) 0.90f else 0.76f)
+                                Color(0xFF0D1936).copy(alpha = if (isOpen) panelAlpha else 0.74f),
+                                Color(0xFF132245).copy(alpha = if (isOpen) (panelAlpha - 0.04f).coerceAtLeast(0.4f) else 0.66f),
+                                Color(0xFF0A1228).copy(alpha = if (isOpen) (panelAlpha + 0.04f).coerceAtMost(0.96f) else 0.76f)
                             )
                         )
                     )
@@ -253,7 +319,6 @@ fun UpwardCurvedGlassSidebar(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Bottom
                 ) {
-                    // Expanded Upward Menu Section with Curved Outside Active Tab
                     AnimatedVisibility(
                         visible = isOpen,
                         enter = fadeIn(tween(240, delayMillis = 60)),
@@ -265,7 +330,6 @@ fun UpwardCurvedGlassSidebar(
                                 .fillMaxSize()
                                 .padding(top = 12.dp)
                         ) {
-                            // Minimal Top Header inside expanded upward sidebar
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -281,25 +345,48 @@ fun UpwardCurvedGlassSidebar(
                                     ),
                                     color = VitroTextPrimary
                                 )
-                                Text(
-                                    text = "${telemetry.timeText} • ${telemetry.batteryPercent}%",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = VitroCyanAccent
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "${telemetry.timeText} • ${telemetry.batteryPercent}%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = VitroCyanAccent
+                                    )
+                                    // Always-accessible subtle Studio shortcut so user can never hide settings permanently
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.10f))
+                                            .clickable {
+                                                onToggleOpen(false)
+                                                onOpenStudio()
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Settings,
+                                            contentDescription = "Pengaturan Studio Vitro",
+                                            tint = VitroTextPrimary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
                             }
 
                             Spacer(modifier = Modifier.height(6.dp))
 
-                            // Scrollable Vertical Menu with Authentic Curved-Outside Active Tab
                             val itemHeight = 52.dp
                             val verticalPadding = 14.dp
                             val activeTopDp by animateDpAsState(
-                                targetValue = verticalPadding + itemHeight * selectedIndex,
+                                targetValue = verticalPadding + itemHeight * safeSelectedIndex,
                                 animationSpec = spring(dampingRatio = 0.72f, stiffness = 360f),
                                 label = "curved_outside_tab_y"
                             )
                             val activeAccent by animateColorAsState(
-                                targetValue = menuItems[selectedIndex.coerceIn(0, menuItems.lastIndex)].accent,
+                                targetValue = menuItems[safeSelectedIndex].accent,
                                 animationSpec = tween(260),
                                 label = "curved_tab_accent"
                             )
@@ -312,7 +399,6 @@ fun UpwardCurvedGlassSidebar(
                             ) {
                                 val totalListHeight = verticalPadding * 2 + itemHeight * menuItems.size
 
-                                // Layer 1: Smoothly Gliding Curved-Outside Active Tab Shape (inverse concave fillets!)
                                 Canvas(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -328,7 +414,6 @@ fun UpwardCurvedGlassSidebar(
 
                                     val path = Path().apply {
                                         if (isLeft) {
-                                            // Curved outside on RIGHT wall of the left sidebar
                                             moveTo(w, tabTop - curveR)
                                             quadraticTo(w, tabTop, w - curveR, tabTop)
                                             lineTo(inset + pillR, tabTop)
@@ -342,7 +427,6 @@ fun UpwardCurvedGlassSidebar(
                                             quadraticTo(w, tabBot, w, tabBot + curveR)
                                             close()
                                         } else {
-                                            // Mirrored: Curved outside on LEFT wall of the right sidebar
                                             moveTo(0f, tabTop - curveR)
                                             quadraticTo(0f, tabTop, curveR, tabTop)
                                             lineTo(w - inset - pillR, tabTop)
@@ -358,7 +442,6 @@ fun UpwardCurvedGlassSidebar(
                                         }
                                     }
 
-                                    // Luminous Glass Active Tab Fill
                                     drawPath(
                                         path = path,
                                         brush = Brush.horizontalGradient(
@@ -374,7 +457,6 @@ fun UpwardCurvedGlassSidebar(
                                         )
                                     )
 
-                                    // Crisp Luminous Rim Highlight tracing the curved-outside path
                                     drawPath(
                                         path = path,
                                         brush = Brush.horizontalGradient(
@@ -388,7 +470,6 @@ fun UpwardCurvedGlassSidebar(
                                     )
                                 }
 
-                                // Layer 2: Interactive Menu Items with Smooth Hover & Selection Glide
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -397,17 +478,16 @@ fun UpwardCurvedGlassSidebar(
                                     menuItems.forEachIndexed { index, item ->
                                         CurvedSidebarMenuRow(
                                             item = item,
-                                            selected = index == selectedIndex,
+                                            selected = index == safeSelectedIndex,
                                             isLeftSidebar = isLeft,
                                             height = itemHeight,
                                             onClick = {
                                                 selectedIndex = index
-                                                if (item.id == "widgets") {
+                                                if (item.keepOpenOnClick) {
                                                     item.action()
                                                 } else {
                                                     scope.launch {
-                                                        // Let user enjoy the silky curved-tab glide before opening overlay
-                                                        delay(190L)
+                                                        delay(180L)
                                                         onToggleOpen(false)
                                                         item.action()
                                                     }
@@ -420,7 +500,6 @@ fun UpwardCurvedGlassSidebar(
                         }
                     }
 
-                    // Bottom Anchor Bar (becomes the Aesthetic Closed Pill when retracted, and the Close Pill when open!)
                     SidebarBottomAnchorPillRow(
                         isOpen = isOpen,
                         pulse = pulse,
@@ -434,7 +513,7 @@ fun UpwardCurvedGlassSidebar(
 
 @Composable
 private fun CurvedSidebarMenuRow(
-    item: CurvedSidebarItem,
+    item: ResolvedSidebarItem,
     selected: Boolean,
     isLeftSidebar: Boolean,
     height: Dp,
@@ -482,22 +561,33 @@ private fun CurvedSidebarMenuRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(
-                    if (selected) item.accent.copy(alpha = 0.92f)
-                    else Color.White.copy(alpha = if (isHovered) 0.16f else 0.08f)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = item.icon,
+        if (item.appIcon != null) {
+            Image(
+                bitmap = item.appIcon,
                 contentDescription = item.label,
-                tint = if (selected) Color(0xFF070B18) else contentColor,
-                modifier = Modifier.size(17.dp)
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(RoundedCornerShape(9.dp))
             )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (selected) item.accent.copy(alpha = 0.92f)
+                        else Color.White.copy(alpha = if (isHovered) 0.16f else 0.08f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.label,
+                    tint = if (selected) Color(0xFF070B18) else contentColor,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
         }
         Text(
             text = item.label,

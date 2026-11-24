@@ -1,5 +1,6 @@
 package com.example.launcher.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -17,13 +18,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,30 +45,41 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.launcher.model.BatteryIconStyle
 import com.example.launcher.model.DockColorPreset
 import com.example.launcher.model.DockLayoutMode
+import com.example.launcher.model.EdgePanelTriggerZone
+import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
-import com.example.launcher.model.ModuleSize
+import com.example.launcher.model.LockSecurityMode
 import com.example.launcher.model.PageTransitionStyle
 import com.example.launcher.model.PopupStyle
 import com.example.launcher.model.QuickModuleType
 import com.example.launcher.model.QuickPanelOrientation
-import com.example.launcher.model.SidebarSide
 import com.example.launcher.model.StatusIndicatorPosition
 import com.example.launcher.model.StatusSlotAlignment
 import com.example.launcher.model.TransitionSpeed
 import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.model.WidgetStackMode
 import com.example.launcher.model.WidgetType
+import com.example.launcher.system.AvailableAndroidWidget
 import com.example.launcher.ui.components.VitroGlassContainer
 import com.example.launcher.ui.components.bouncyClickable
+import com.example.ui.theme.VitroAmber
+import com.example.ui.theme.VitroCoral
 import com.example.ui.theme.VitroCyanAccent
 import com.example.ui.theme.VitroIndigo
 import com.example.ui.theme.VitroMint
@@ -75,9 +92,95 @@ import kotlin.math.roundToInt
 @Composable
 fun DockStudioTab(
     config: LauncherConfig,
-    onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit
+    installedApps: List<InstalledApp>,
+    onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    onAddDockApp: (String) -> Unit,
+    onRemoveDockApp: (String) -> Unit,
+    onMoveDockApp: (String, Boolean) -> Unit
 ) {
+    var showDockAppPicker by remember { mutableStateOf(false) }
+
+    val activeDockApps = remember(installedApps, config.pinnedDockPackages, config.dockMaxIcons) {
+        val pinned = config.pinnedDockPackages.mapNotNull { pkg ->
+            installedApps.firstOrNull { it.packageName == pkg }
+        }
+        if (pinned.isNotEmpty()) pinned else installedApps.take(config.dockMaxIcons)
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // 1. Custom Dock App Picker & Reorder
+        StudioSectionTitle("Atur Isi Aplikasi Dock Bar")
+        Button(
+            onClick = { showDockAppPicker = true },
+            colors = ButtonDefaults.buttonColors(containerColor = VitroCyanAccent, contentColor = VitroObsidian),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("studio_add_dock_app_button")
+        ) {
+            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Pilih / Tambah Aplikasi ke Dock Bar", style = MaterialTheme.typography.labelLarge)
+        }
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            activeDockApps.forEachIndexed { idx, app ->
+                VitroGlassContainer(
+                    cornerRadius = 18.dp,
+                    glassOpacity = 0.22f,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (app.iconBitmap != null) {
+                                Image(
+                                    bitmap = app.iconBitmap,
+                                    contentDescription = app.label,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp))
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = app.label,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = VitroTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Slot #${idx + 1}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = VitroCyanAccent
+                                )
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { onMoveDockApp(app.packageName, true) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Geser kiri", tint = VitroTextSecondary, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(onClick = { onMoveDockApp(app.packageName, false) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowForward, contentDescription = "Geser kanan", tint = VitroTextSecondary, modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(onClick = { onRemoveDockApp(app.packageName) }, modifier = Modifier.size(36.dp)) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Hapus dari Dock", tint = VitroCoral, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         StudioSectionTitle("Tata Letak Dock Bar")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             DockLayoutMode.entries.forEach { mode ->
@@ -128,11 +231,7 @@ fun DockStudioTab(
                                 )
                             }
                         }
-                        Text(
-                            text = preset.label,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = VitroTextPrimary
-                        )
+                        Text(preset.label, style = MaterialTheme.typography.labelLarge, color = VitroTextPrimary)
                     }
                 }
             }
@@ -169,17 +268,110 @@ fun DockStudioTab(
             onCheckedChange = { checked -> onUpdate { it.copy(showDockLabels = checked) } }
         )
     }
+
+    if (showDockAppPicker) {
+        SearchableAppPickerDialog(
+            title = "Pilih Aplikasi untuk Dock Bar",
+            apps = installedApps,
+            selectedPackages = activeDockApps.map { it.packageName }.toSet(),
+            onPickApp = { app ->
+                onAddDockApp(app.packageName)
+                showDockAppPicker = false
+            },
+            onDismiss = { showDockAppPicker = false }
+        )
+    }
 }
 
 @Composable
 fun WidgetStudioTab(
     config: LauncherConfig,
+    availableAndroidWidgets: List<AvailableAndroidWidget>,
     onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit,
     onToggleWidget: (WidgetType) -> Unit,
-    onMoveWidget: (WidgetType, Boolean) -> Unit
+    onMoveWidget: (WidgetType, Boolean) -> Unit,
+    onAddBuiltInWidget: (WidgetType, Int) -> Unit,
+    onPickAndroidWidget: (AvailableAndroidWidget, Int) -> Unit,
+    onRemoveHomeWidget: (String) -> Unit,
+    onResizeHomeWidget: (String, Int) -> Unit
 ) {
+    var showAddWidgetPicker by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        StudioSectionTitle("Gaya Susunan Widget")
+        Button(
+            onClick = { showAddWidgetPicker = true },
+            colors = ButtonDefaults.buttonColors(containerColor = VitroCyanAccent, contentColor = VitroObsidian),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("studio_add_widget_button")
+        ) {
+            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Tambah Widget (Kaca Vitro / Widget Asli HP)", style = MaterialTheme.typography.labelLarge)
+        }
+
+        // User-added widgets across all pages
+        StudioSectionTitle("Widget Terpasang di Halaman (${config.homeWidgets.size})")
+        if (config.homeWidgets.isEmpty()) {
+            Text(
+                text = "Belum ada widget tambahan. Ketuk tombol di atas untuk menambah widget kaca atau widget asli Android dari HP Anda.",
+                style = MaterialTheme.typography.bodySmall,
+                color = VitroTextSecondary
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                config.homeWidgets.forEach { placement ->
+                    val title = placement.builtInType?.label ?: placement.label.ifBlank { "Widget Android" }
+                    val isAndroid = placement.appWidgetId != null
+                    VitroGlassContainer(
+                        cornerRadius = 18.dp,
+                        glassOpacity = 0.22f,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(title, style = MaterialTheme.typography.titleSmall, color = VitroTextPrimary)
+                                    Text(
+                                        text = "${if (isAndroid) "Widget Asli HP" else "Widget Kaca"} • Halaman ${placement.pageIndex + 1}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isAndroid) VitroMint else VitroCyanAccent
+                                    )
+                                }
+                                IconButton(onClick = { onRemoveHomeWidget(placement.id) }) {
+                                    Icon(Icons.Rounded.DeleteOutline, contentDescription = "Hapus widget", tint = VitroCoral)
+                                }
+                            }
+                            if (isAndroid) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Tinggi Widget", style = MaterialTheme.typography.labelSmall, color = VitroTextSecondary)
+                                    Text("${placement.heightDp} dp", style = MaterialTheme.typography.labelSmall, color = VitroCyanAccent)
+                                }
+                                Slider(
+                                    value = placement.heightDp.toFloat(),
+                                    onValueChange = { v -> onResizeHomeWidget(placement.id, v.roundToInt()) },
+                                    valueRange = 96f..400f,
+                                    colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = VitroCyanAccent)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        StudioSectionTitle("Gaya Susunan Smart Stack (Halaman 1)")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             WidgetStackMode.entries.forEach { mode ->
                 StudioRadioCard(
@@ -199,7 +391,7 @@ fun WidgetStudioTab(
             onValueChange = { v -> onUpdate { it.copy(widgetGlassOpacity = v) } }
         )
 
-        StudioSectionTitle("Urutan & Daftar Widget Aktif")
+        StudioSectionTitle("Urutan Widget di Smart Stack")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val orderedTypes = config.enabledWidgets + WidgetType.entries.filterNot { it in config.enabledWidgets }
             orderedTypes.forEach { type ->
@@ -265,16 +457,29 @@ fun WidgetStudioTab(
             modifier = Modifier.fillMaxWidth()
         )
     }
+
+    if (showAddWidgetPicker) {
+        WidgetAddPickerDialog(
+            homePageCount = config.homePageCount,
+            androidWidgets = availableAndroidWidgets,
+            onAddBuiltInWidget = onAddBuiltInWidget,
+            onPickAndroidWidget = onPickAndroidWidget,
+            onDismiss = { showAddWidgetPicker = false }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun QuickPanelStudioTab(
     config: LauncherConfig,
+    isOverlayGranted: Boolean,
     onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit,
     onToggleModule: (QuickModuleType) -> Unit,
-    onSetModuleSize: (QuickModuleType, ModuleSize) -> Unit,
-    onPreviewQuickPanel: () -> Unit
+    onUpdateModuleSize: (QuickModuleType, Float, Int) -> Unit,
+    onMoveModule: (QuickModuleType, Boolean) -> Unit,
+    onPreviewQuickPanel: () -> Unit,
+    onOpenOverlayPermission: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Button(
@@ -285,10 +490,47 @@ fun QuickPanelStudioTab(
                 .fillMaxWidth()
                 .testTag("studio_preview_quick_panel_button")
         ) {
-            Text("Buka Pratinjau Quick Panel Glass", style = MaterialTheme.typography.labelLarge)
+            Text("Buka Pratinjau Pusat Kontrol Kaca", style = MaterialTheme.typography.labelLarge)
         }
 
-        StudioSectionTitle("Orientasi Quick Panel")
+        StudioSectionTitle("Gantikan Panel Kontrol Bawaan HP")
+        StudioToggleRow(
+            label = "Aktifkan Pemicu Tepi di Semua Aplikasi",
+            checked = config.replaceSystemControlPanel,
+            onCheckedChange = { c ->
+                onUpdate { it.copy(replaceSystemControlPanel = c) }
+                if (c && !isOverlayGranted) onOpenOverlayPermission()
+            }
+        )
+        if (!isOverlayGranted) {
+            VitroGlassContainer(
+                cornerRadius = 16.dp,
+                tintColor = VitroAmber,
+                glassOpacity = 0.20f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bouncyClickable(onClick = onOpenOverlayPermission)
+            ) {
+                Text(
+                    text = "Izin 'Tampil di atas aplikasi lain' belum aktif. Ketuk di sini agar geser turun dari tepi atas langsung membuka Pusat Kontrol Vitro menggantikan panel bawaan HP.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VitroTextPrimary,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            EdgePanelTriggerZone.entries.forEach { zone ->
+                StudioRadioCard(
+                    title = zone.label,
+                    subtitle = zone.subtitle,
+                    selected = config.edgeTriggerZone == zone,
+                    onClick = { onUpdate { it.copy(edgeTriggerZone = zone) } }
+                )
+            }
+        }
+
+        StudioSectionTitle("Orientasi & Gaya Pusat Kontrol")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             QuickPanelOrientation.entries.forEach { orient ->
                 StudioRadioCard(
@@ -308,6 +550,14 @@ fun QuickPanelStudioTab(
             onValueChange = { v -> onUpdate { it.copy(quickPanelGlassOpacity = v) } }
         )
 
+        StudioSliderRow(
+            label = "Tinggi Slider Kecerahan & Suara",
+            valueText = "${config.sliderHeightDp} dp",
+            value = config.sliderHeightDp.toFloat(),
+            range = 100f..220f,
+            onValueChange = { v -> onUpdate { it.copy(sliderHeightDp = v.roundToInt()) } }
+        )
+
         StudioToggleRow("Slider Kecerahan Kaca", config.showBrightnessSlider) { c ->
             onUpdate { it.copy(showBrightnessSlider = c) }
         }
@@ -318,16 +568,16 @@ fun QuickPanelStudioTab(
             onUpdate { it.copy(showMediaControl = c) }
         }
 
-        StudioSectionTitle("Atur Modul & Ukuran (1×1 / Horizontal / Vertikal)")
+        StudioSectionTitle("Atur Modul & Ukuran Bebas (Lebar & Tinggi)")
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             config.quickModules.forEach { mod ->
                 VitroGlassContainer(
-                    cornerRadius = 18.dp,
+                    cornerRadius = 20.dp,
                     glassOpacity = if (mod.enabled) 0.22f else 0.10f,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Row(
@@ -336,20 +586,68 @@ fun QuickPanelStudioTab(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(mod.type.label, style = MaterialTheme.typography.titleSmall, color = VitroTextPrimary)
-                            Switch(
-                                checked = mod.enabled,
-                                onCheckedChange = { onToggleModule(mod.type) },
-                                colors = SwitchDefaults.colors(checkedThumbColor = VitroObsidian, checkedTrackColor = VitroCyanAccent)
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { onMoveModule(mod.type, true) }, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Rounded.ArrowUpward, contentDescription = "Naik", tint = VitroTextSecondary, modifier = Modifier.size(18.dp))
+                                }
+                                IconButton(onClick = { onMoveModule(mod.type, false) }, modifier = Modifier.size(34.dp)) {
+                                    Icon(Icons.Rounded.ArrowDownward, contentDescription = "Turun", tint = VitroTextSecondary, modifier = Modifier.size(18.dp))
+                                }
+                                Switch(
+                                    checked = mod.enabled,
+                                    onCheckedChange = { onToggleModule(mod.type) },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = VitroObsidian, checkedTrackColor = VitroCyanAccent)
+                                )
+                            }
                         }
+
                         if (mod.enabled) {
-                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                ModuleSize.entries.forEach { sz ->
-                                    StudioSmallChip(
-                                        text = sz.label,
-                                        selected = mod.size == sz,
-                                        onClick = { onSetModuleSize(mod.type, sz) }
-                                    )
+                            // Free Width Slider (23%..100%)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Lebar Modul", style = MaterialTheme.typography.labelSmall, color = VitroTextSecondary)
+                                Text("${(mod.widthPercent * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, color = VitroCyanAccent)
+                            }
+                            Slider(
+                                value = mod.widthPercent,
+                                onValueChange = { w -> onUpdateModuleSize(mod.type, w, mod.heightDp) },
+                                valueRange = 0.23f..1.0f,
+                                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = VitroCyanAccent)
+                            )
+
+                            // Free Height Slider (56..220dp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Tinggi Modul", style = MaterialTheme.typography.labelSmall, color = VitroTextSecondary)
+                                Text("${mod.heightDp} dp", style = MaterialTheme.typography.labelSmall, color = VitroMint)
+                            }
+                            Slider(
+                                value = mod.heightDp.toFloat(),
+                                onValueChange = { h -> onUpdateModuleSize(mod.type, mod.widthPercent, h.roundToInt()) },
+                                valueRange = 56f..220f,
+                                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = VitroMint)
+                            )
+
+                            // Fast shape presets for convenience
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                StudioSmallChip("1×1", mod.widthPercent < 0.38f && mod.heightDp < 96) {
+                                    onUpdateModuleSize(mod.type, 0.31f, 74)
+                                }
+                                StudioSmallChip("2×1 Lebar", mod.widthPercent in 0.44f..0.56f && mod.heightDp < 96) {
+                                    onUpdateModuleSize(mod.type, 0.48f, 78)
+                                }
+                                StudioSmallChip("1×2 Tinggi", mod.widthPercent < 0.56f && mod.heightDp >= 130) {
+                                    onUpdateModuleSize(mod.type, 0.48f, 152)
+                                }
+                                StudioSmallChip("Penuh", mod.widthPercent >= 0.92f) {
+                                    onUpdateModuleSize(mod.type, 1.0f, 84)
                                 }
                             }
                         }
@@ -367,6 +665,13 @@ fun StatusIndicatorStudioTab(
     onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        StudioSectionTitle("Status Bar Sistem Android")
+        StudioToggleRow(
+            label = "Sembunyikan Status Bar Bawaan HP (Anti Tumpuk)",
+            checked = config.hideSystemStatusBar,
+            onCheckedChange = { c -> onUpdate { it.copy(hideSystemStatusBar = c) } }
+        )
+
         StudioSectionTitle("Posisi Indikator Sinyal, Baterai & Jam")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             StatusIndicatorPosition.entries.forEach { pos ->
@@ -497,10 +802,159 @@ fun PopupStudioTab(
 @Composable
 fun PagesStudioTab(
     config: LauncherConfig,
+    isAccessibilityGranted: Boolean,
     onUpdate: ((LauncherConfig) -> LauncherConfig) -> Unit,
+    onSetLockPasscode: (LockSecurityMode, String) -> Unit,
+    onOpenAccessibilitySettings: () -> Unit,
     onPreviewLockScreen: () -> Unit
 ) {
+    var selectedModeDraft by remember(config.lockSecurityMode) { mutableStateOf(config.lockSecurityMode) }
+    var newPasscode by remember { mutableStateOf("") }
+    var confirmPasscode by remember { mutableStateOf("") }
+    var statusFeedback by remember { mutableStateOf<String?>(null) }
+
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        StudioSectionTitle("Gestur Kunci Layar Cepat")
+        StudioToggleRow(
+            label = "Ketuk 2 Kali di Beranda untuk Kunci HP",
+            checked = config.doubleTapToLock,
+            onCheckedChange = { c ->
+                onUpdate { it.copy(doubleTapToLock = c) }
+                if (c && !isAccessibilityGranted) onOpenAccessibilitySettings()
+            }
+        )
+        if (config.doubleTapToLock && !isAccessibilityGranted) {
+            VitroGlassContainer(
+                cornerRadius = 16.dp,
+                tintColor = VitroAmber,
+                glassOpacity = 0.18f,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bouncyClickable(onClick = onOpenAccessibilitySettings)
+            ) {
+                Text(
+                    text = "Aktifkan Layanan Aksesibilitas Vitro (ketuk di sini) agar ketuk 2x benar-benar mematikan & mengunci layar HP Anda.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VitroTextPrimary,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+
+        // Lock Screen Passcode / PIN Creator
+        StudioSectionTitle("Keamanan & Sandi Layar Kunci")
+        VitroGlassContainer(
+            cornerRadius = 20.dp,
+            tintColor = if (config.lockSecurityMode != LockSecurityMode.NONE) VitroMint else Color.White,
+            glassOpacity = 0.18f,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Rounded.Security, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(20.dp))
+                    Text(
+                        text = if (config.lockSecurityMode == LockSecurityMode.NONE) "Status: Tanpa Sandi"
+                        else "Status: ${config.lockSecurityMode.label} Aktif",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = if (config.lockSecurityMode != LockSecurityMode.NONE) VitroMint else VitroTextPrimary
+                    )
+                }
+
+                LockSecurityMode.entries.forEach { mode ->
+                    StudioRadioCard(
+                        title = mode.label,
+                        subtitle = mode.subtitle,
+                        selected = selectedModeDraft == mode,
+                        onClick = {
+                            selectedModeDraft = mode
+                            newPasscode = ""
+                            confirmPasscode = ""
+                            statusFeedback = null
+                            if (mode == LockSecurityMode.NONE) {
+                                onSetLockPasscode(LockSecurityMode.NONE, "")
+                                statusFeedback = "Sandi layar kunci dinonaktifkan."
+                            }
+                        }
+                    )
+                }
+
+                if (selectedModeDraft != LockSecurityMode.NONE) {
+                    val isPin = selectedModeDraft == LockSecurityMode.PIN
+                    OutlinedTextField(
+                        value = newPasscode,
+                        onValueChange = { raw ->
+                            val clean = if (isPin) raw.filter { it.isDigit() }.take(6) else raw.take(24)
+                            newPasscode = clean
+                            statusFeedback = null
+                        },
+                        label = { Text(if (isPin) "Buat PIN Baru (4–6 angka)" else "Buat Sandi Baru (min. 4 karakter)") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = VitroCyanAccent,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
+                            focusedTextColor = VitroTextPrimary,
+                            unfocusedTextColor = VitroTextPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("studio_passcode_input")
+                    )
+                    OutlinedTextField(
+                        value = confirmPasscode,
+                        onValueChange = { raw ->
+                            val clean = if (isPin) raw.filter { it.isDigit() }.take(6) else raw.take(24)
+                            confirmPasscode = clean
+                            statusFeedback = null
+                        },
+                        label = { Text(if (isPin) "Ulangi PIN" else "Ulangi Sandi") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = VitroCyanAccent,
+                            unfocusedBorderColor = Color.White.copy(alpha = 0.25f),
+                            focusedTextColor = VitroTextPrimary,
+                            unfocusedTextColor = VitroTextPrimary
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("studio_passcode_confirm")
+                    )
+                    Button(
+                        onClick = {
+                            when {
+                                newPasscode.length < 4 -> statusFeedback = "Minimal 4 karakter/digit."
+                                newPasscode != confirmPasscode -> statusFeedback = "Konfirmasi sandi tidak cocok."
+                                else -> {
+                                    onSetLockPasscode(selectedModeDraft, newPasscode)
+                                    newPasscode = ""
+                                    confirmPasscode = ""
+                                    statusFeedback = "Sandi layar kunci berhasil disimpan!"
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = VitroMint, contentColor = VitroObsidian),
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("studio_save_passcode_button")
+                    ) {
+                        Text("Simpan Sandi Layar Kunci", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+
+                if (statusFeedback != null) {
+                    Text(
+                        text = statusFeedback!!,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (statusFeedback!!.contains("berhasil") || statusFeedback!!.contains("dinonaktifkan")) VitroMint else VitroCoral
+                    )
+                }
+            }
+        }
+
         StudioSectionTitle("Halaman & Ukuran Home Screen")
         StudioSliderRow(
             label = "Jumlah Halaman Home Screen",
@@ -509,22 +963,6 @@ fun PagesStudioTab(
             range = 1f..7f,
             steps = 5,
             onValueChange = { v -> onUpdate { it.copy(homePageCount = v.roundToInt()) } }
-        )
-        StudioSliderRow(
-            label = "Jumlah Kolom Grid",
-            valueText = "${config.homeGridColumns} kolom",
-            value = config.homeGridColumns.toFloat(),
-            range = 3f..6f,
-            steps = 2,
-            onValueChange = { v -> onUpdate { it.copy(homeGridColumns = v.roundToInt()) } }
-        )
-        StudioSliderRow(
-            label = "Jumlah Baris Grid",
-            valueText = "${config.homeGridRows} baris",
-            value = config.homeGridRows.toFloat(),
-            range = 4f..7f,
-            steps = 2,
-            onValueChange = { v -> onUpdate { it.copy(homeGridRows = v.roundToInt()) } }
         )
         StudioSliderRow(
             label = "Ukuran / Skala Halaman Home",
@@ -568,7 +1006,7 @@ fun PagesStudioTab(
         ) {
             Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Lihat Pratinjau Lock Screen Multi-Halaman", style = MaterialTheme.typography.labelLarge)
+            Text("Uji Layar Kunci & Sandi Sekarang", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -605,7 +1043,6 @@ fun TransitionStudioTab(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ThemeWallpaperStudioTab(
     config: LauncherConfig,
@@ -614,23 +1051,6 @@ fun ThemeWallpaperStudioTab(
     onResetDefaults: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        StudioSectionTitle("Sidebar Kaca v7 (Memanjang ke Atas)")
-        StudioToggleRow(
-            label = "Tampilkan Pil Sidebar di Atas Dock Bar",
-            checked = config.showGlassySidebar,
-            onCheckedChange = { checked -> onUpdate { it.copy(showGlassySidebar = checked) } }
-        )
-        if (config.showGlassySidebar) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SidebarSide.entries.forEach { side ->
-                    StudioSmallChip(
-                        text = side.label,
-                        selected = config.sidebarSide == side,
-                        onClick = { onUpdate { it.copy(sidebarSide = side) } }
-                    )
-                }
-            }
-        }
         StudioSliderRow(
             label = "Intensitas Efek Pendar (Glow)",
             valueText = "${(config.ambientGlowIntensity * 100).roundToInt()}%",
@@ -639,12 +1059,12 @@ fun ThemeWallpaperStudioTab(
             onValueChange = { v -> onUpdate { it.copy(ambientGlowIntensity = v) } }
         )
 
-        StudioSectionTitle("Wallpaper Kaca Bawaan")
+        StudioSectionTitle("Wallpaper (Bisa Sinkron Wallpaper Asli HP)")
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             WallpaperPreset.entries.forEach { preset ->
                 StudioRadioCard(
                     title = preset.label,
-                    subtitle = "Latar beresolusi tinggi optimal untuk efek frosted glass",
+                    subtitle = preset.subtitle,
                     selected = config.wallpaperPreset == preset,
                     onClick = { onUpdate { it.copy(wallpaperPreset = preset) } }
                 )
@@ -714,7 +1134,7 @@ fun StudioRadioCard(
             Column(modifier = Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, color = VitroTextPrimary)
                 Spacer(modifier = Modifier.height(2.dp))
-                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = VitroTextSecondary)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = VitroTextSecondary)
             }
             if (selected) {
                 Box(
@@ -808,7 +1228,12 @@ fun StudioToggleRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(label, style = MaterialTheme.typography.titleSmall, color = VitroTextPrimary)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                color = VitroTextPrimary,
+                modifier = Modifier.weight(1f).padding(end = 8.dp)
+            )
             Switch(
                 checked = checked,
                 onCheckedChange = onCheckedChange,

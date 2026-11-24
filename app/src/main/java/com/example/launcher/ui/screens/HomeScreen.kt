@@ -1,12 +1,14 @@
 package com.example.launcher.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,9 +19,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -40,10 +42,13 @@ import com.example.launcher.model.DockLayoutMode
 import com.example.launcher.model.HomeNavTab
 import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LiveNotification
+import com.example.launcher.model.NowPlayingInfo
 import com.example.launcher.model.StatusIndicatorPosition
-import com.example.launcher.model.WidgetStackMode
-import com.example.launcher.model.WidgetType
+import com.example.launcher.system.VitroAppWidgetManager
+import com.example.launcher.ui.components.AndroidSystemWidgetCard
 import com.example.launcher.ui.components.CompactStatusCapsule
+import com.example.launcher.ui.components.SingleBuiltInGlassWidgetCard
 import com.example.launcher.ui.components.TopStatusIndicatorArea
 import com.example.launcher.ui.components.UpwardCurvedGlassSidebar
 import com.example.launcher.ui.components.VitroDockBar
@@ -51,7 +56,6 @@ import com.example.launcher.ui.components.VitroWidgetSection
 import com.example.launcher.ui.components.applyPageTransition
 import com.example.launcher.viewmodel.LauncherUiOverlays
 import com.example.ui.theme.VitroCyanAccent
-import com.example.ui.theme.VitroTextSecondary
 import kotlinx.coroutines.launch
 
 @Composable
@@ -60,18 +64,29 @@ fun HomeScreen(
     installedApps: List<InstalledApp>,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    isNotificationAccessEnabled: Boolean,
+    appWidgetManager: VitroAppWidgetManager,
     activeNavTab: HomeNavTab,
     onLaunchApp: (InstalledApp) -> Unit,
+    onLaunchAppPackage: (String) -> Unit,
     onLongPressApp: (InstalledApp) -> Unit,
     onOpenQuickPanel: () -> Unit,
     onOpenAppDrawer: () -> Unit,
     onOpenStudio: () -> Unit,
     onEnterLockScreen: () -> Unit,
+    onLockPhoneNow: () -> Unit,
+    onDoubleTapLock: () -> Unit,
+    onToggleFlashlight: () -> Unit,
     onTriggerHomePopup: () -> Unit,
     onCycleWidgetStack: (Int) -> Unit,
     onToggleMedia: () -> Unit,
     onToggleFocusTimer: () -> Unit,
-    onResetFocusTimer: () -> Unit
+    onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit
 ) {
     val dockApps = remember(installedApps, config.pinnedDockPackages, config.dockMaxIcons) {
         val pinned = config.pinnedDockPackages.mapNotNull { pkg ->
@@ -88,33 +103,44 @@ fun HomeScreen(
     val coroutineScope = rememberCoroutineScope()
     var verticalSwipeSum by remember { mutableFloatStateOf(0f) }
 
-    // Upward-expanding Curved-Outside Active Tab Sidebar (starts closed as a sleek aesthetic pill)
     var isSidebarOpen by remember { mutableStateOf(false) }
 
     val hasBottomDock = config.dockLayout == DockLayoutMode.FLOATING_BOTTOM ||
         config.dockLayout == DockLayoutMode.FULL_EDGE_BOTTOM
 
+    // Prevent overlap with native status bar or display camera cutout
+    val topSafeModifier = if (config.hideSystemStatusBar) {
+        Modifier.displayCutoutPadding().padding(top = 6.dp)
+    } else {
+        Modifier.statusBarsPadding()
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        // Layer A: Serene, Minimalist Widget-Only Home Screen Canvas (zero menu clutter!)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                .then(topSafeModifier)
                 .navigationBarsPadding()
+                .pointerInput(config.doubleTapToLock) {
+                    detectTapGestures(
+                        onDoubleTap = { onDoubleTapLock() },
+                        onLongPress = { onOpenStudio() }
+                    )
+                }
                 .pointerInput(Unit) {
                     detectVerticalDragGestures(
                         onDragStart = { verticalSwipeSum = 0f },
                         onVerticalDrag = { _, dragAmount -> verticalSwipeSum += dragAmount },
                         onDragEnd = {
-                            if (verticalSwipeSum > 95f) onOpenQuickPanel()
-                            else if (verticalSwipeSum < -95f) onOpenAppDrawer()
+                            if (verticalSwipeSum > 85f) onOpenQuickPanel()
+                            else if (verticalSwipeSum < -85f) onOpenAppDrawer()
                             verticalSwipeSum = 0f
                         }
                     )
                 }
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // 1. Minimal Status Bar / Dynamic Glass Pill
+                // 1. Custom Status Indicators (zero native overlap when hideSystemStatusBar=true)
                 TopStatusIndicatorArea(
                     config = config,
                     telemetry = telemetry,
@@ -122,7 +148,12 @@ fun HomeScreen(
                     onTriggerPopup = onTriggerHomePopup
                 )
 
-                // 2. Pure Widget-Only Multi-Page Home Workspace
+                // Extra clearance when Dynamic Island is enabled so widgets sit cleanly below it
+                if (config.dynamicIsland.enabled && config.statusPosition == StatusIndicatorPosition.HIDDEN) {
+                    Spacer(modifier = Modifier.height((config.dynamicIsland.heightDp + 10f).dp))
+                }
+
+                // 2. Pure Widget-Only Multi-Page Workspace (Glass Widgets + Real Android AppWidgets)
                 Row(
                     modifier = Modifier
                         .weight(1f)
@@ -158,10 +189,19 @@ fun HomeScreen(
                                 config = config,
                                 telemetry = telemetry,
                                 overlays = overlays,
+                                notifications = notifications,
+                                nowPlaying = nowPlaying,
+                                installedApps = installedApps,
+                                isNotificationAccessEnabled = isNotificationAccessEnabled,
+                                appWidgetManager = appWidgetManager,
                                 onCycleWidgetStack = onCycleWidgetStack,
                                 onToggleMedia = onToggleMedia,
                                 onToggleFocusTimer = onToggleFocusTimer,
                                 onResetFocusTimer = onResetFocusTimer,
+                                onOpenNotification = onOpenNotification,
+                                onDismissNotification = onDismissNotification,
+                                onEnableNotificationAccess = onEnableNotificationAccess,
+                                onLaunchApp = onLaunchApp,
                                 onOpenStudio = onOpenStudio,
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -174,7 +214,6 @@ fun HomeScreen(
                             )
                         }
 
-                        // Subtle Page Indicator Dots
                         if (totalPages > 1) {
                             Row(
                                 modifier = Modifier
@@ -213,7 +252,6 @@ fun HomeScreen(
                     }
                 }
 
-                // Reserved sleek space right above Dock Bar for the closed Aesthetic Sidebar Pill
                 if (config.showGlassySidebar) {
                     Spacer(modifier = Modifier.height(54.dp))
                 }
@@ -231,7 +269,6 @@ fun HomeScreen(
                 }
             }
 
-            // Optional Bottom Corner Status Capsule
             if (config.statusPosition == StatusIndicatorPosition.BOTTOM_CAPSULE) {
                 CompactStatusCapsule(
                     config = config,
@@ -244,14 +281,14 @@ fun HomeScreen(
             }
         }
 
-        // Layer B: Upward-Expanding Curved-Outside Active Tab Sidebar anchored cleanly above Dock Bar
+        // Layer B: Customizable Upward-Expanding Curved-Outside Active Tab Sidebar
         if (config.showGlassySidebar) {
             UpwardCurvedGlassSidebar(
                 isOpen = isSidebarOpen,
-                sidebarSide = config.sidebarSide,
+                config = config,
+                installedApps = installedApps,
                 bottomClearance = if (hasBottomDock) (if (config.showDockLabels) 104.dp else 90.dp) else 16.dp,
                 activeNavTab = activeNavTab,
-                glowIntensity = config.ambientGlowIntensity,
                 telemetry = telemetry,
                 onToggleOpen = { isSidebarOpen = it },
                 onSelectHome = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
@@ -259,8 +296,11 @@ fun HomeScreen(
                 onOpenQuickPanel = onOpenQuickPanel,
                 onOpenAppDrawer = onOpenAppDrawer,
                 onTriggerPopup = onTriggerHomePopup,
+                onToggleFlashlight = onToggleFlashlight,
                 onEnterLockScreen = onEnterLockScreen,
-                onOpenStudio = onOpenStudio
+                onLockPhoneNow = onLockPhoneNow,
+                onOpenStudio = onOpenStudio,
+                onLaunchAppPackage = onLaunchAppPackage
             )
         }
     }
@@ -272,78 +312,86 @@ private fun WidgetOnlyHomePage(
     config: LauncherConfig,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    isNotificationAccessEnabled: Boolean,
+    appWidgetManager: VitroAppWidgetManager,
     onCycleWidgetStack: (Int) -> Unit,
     onToggleMedia: () -> Unit,
     onToggleFocusTimer: () -> Unit,
     onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onLaunchApp: (InstalledApp) -> Unit,
     onOpenStudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pageScale = config.homePageScale.coerceIn(0.85f, 1.15f)
     val horizontalMargin = ((1.18f - pageScale) * 40f).coerceIn(14f, 28f).dp
+    val pagePlacements = remember(config.homeWidgets, pageIndex) {
+        config.homeWidgets.filter { it.pageIndex == pageIndex }
+    }
 
     Column(
-        modifier = modifier.padding(horizontal = horizontalMargin, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = horizontalMargin, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        // Primary Smart Stack / Card Deck showcase on Page 0
         if (pageIndex == 0) {
-            // Primary Home Page: Clean Widget Showcase ONLY (Smart Stack / Card Deck / Separate Grid)
             VitroWidgetSection(
                 config = config,
                 telemetry = telemetry,
                 overlays = overlays,
+                notifications = notifications,
+                nowPlaying = nowPlaying,
+                installedApps = installedApps,
+                isNotificationAccessEnabled = isNotificationAccessEnabled,
                 onCycleStack = onCycleWidgetStack,
                 onToggleMedia = onToggleMedia,
                 onToggleFocusTimer = onToggleFocusTimer,
                 onResetFocusTimer = onResetFocusTimer,
+                onOpenNotification = onOpenNotification,
+                onDismissNotification = onDismissNotification,
+                onEnableNotificationAccess = onEnableNotificationAccess,
+                onLaunchApp = onLaunchApp,
                 onOpenStudio = onOpenStudio
             )
+        }
 
-            // Secondary companion widget card on Page 0 if in Smart Stack / Card Deck mode so Home feels rich yet uncluttered
-            if (config.widgetStackMode != WidgetStackMode.GRID_SEPARATE && config.enabledWidgets.size > 1) {
-                val secondaryWidget = config.enabledWidgets.getOrNull(
-                    (overlays.activeSmartStackIndex + 1) % config.enabledWidgets.size
-                ) ?: WidgetType.BATTERY_SYSTEM
-                val secondaryConfig = config.copy(
-                    widgetStackMode = WidgetStackMode.GRID_SEPARATE,
-                    enabledWidgets = listOf(secondaryWidget)
+        // Render all user-added widgets assigned to this page (both Vitro Glass & Real Android AppWidgets!)
+        pagePlacements.forEach { placement ->
+            if (placement.appWidgetId != null) {
+                AndroidSystemWidgetCard(
+                    appWidgetId = placement.appWidgetId,
+                    label = placement.label,
+                    height = placement.heightDp.coerceIn(96, 420).dp,
+                    glassOpacity = config.widgetGlassOpacity,
+                    appWidgetManager = appWidgetManager
                 )
-                VitroWidgetSection(
-                    config = secondaryConfig,
+            } else if (placement.builtInType != null) {
+                SingleBuiltInGlassWidgetCard(
+                    type = placement.builtInType,
+                    config = config,
                     telemetry = telemetry,
                     overlays = overlays,
-                    onCycleStack = onCycleWidgetStack,
+                    notifications = notifications,
+                    nowPlaying = nowPlaying,
+                    installedApps = installedApps,
+                    isNotificationAccessEnabled = isNotificationAccessEnabled,
                     onToggleMedia = onToggleMedia,
                     onToggleFocusTimer = onToggleFocusTimer,
                     onResetFocusTimer = onResetFocusTimer,
+                    onOpenNotification = onOpenNotification,
+                    onDismissNotification = onDismissNotification,
+                    onEnableNotificationAccess = onEnableNotificationAccess,
+                    onLaunchApp = onLaunchApp,
                     onOpenStudio = onOpenStudio
                 )
             }
-        } else {
-            // Additional Home Pages: Dedicated Serene Widget Cards
-            val allTypes = WidgetType.entries
-            val primaryForPage = allTypes[pageIndex % allTypes.size]
-            val secondaryForPage = allTypes[(pageIndex + 1) % allTypes.size]
-            val pageWidgetConfig = config.copy(
-                widgetStackMode = WidgetStackMode.GRID_SEPARATE,
-                enabledWidgets = listOf(primaryForPage, secondaryForPage)
-            )
-            Text(
-                text = "Halaman Widget ${pageIndex + 1}",
-                style = MaterialTheme.typography.labelLarge,
-                color = VitroTextSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp)
-            )
-            VitroWidgetSection(
-                config = pageWidgetConfig,
-                telemetry = telemetry,
-                overlays = overlays,
-                onCycleStack = onCycleWidgetStack,
-                onToggleMedia = onToggleMedia,
-                onToggleFocusTimer = onToggleFocusTimer,
-                onResetFocusTimer = onResetFocusTimer,
-                onOpenStudio = onOpenStudio
-            )
         }
     }
 }

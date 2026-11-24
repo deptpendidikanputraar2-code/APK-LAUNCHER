@@ -57,6 +57,10 @@ fun VitroWallpaperBackdrop(
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         when (preset) {
+            WallpaperPreset.SYSTEM_LIVE -> {
+                // Transparent backdrop letting the real Android system / live wallpaper show through
+                Box(modifier = Modifier.fillMaxSize())
+            }
             WallpaperPreset.AURORA -> {
                 Image(
                     painter = painterResource(id = R.drawable.img_wallpaper_aurora_1795471682249),

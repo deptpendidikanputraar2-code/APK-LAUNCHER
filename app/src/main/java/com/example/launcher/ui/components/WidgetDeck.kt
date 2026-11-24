@@ -9,13 +9,16 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -28,11 +31,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.BatteryStd
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.WbTwilight
 import androidx.compose.material3.Icon
@@ -52,15 +59,22 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.example.launcher.model.DeviceTelemetry
+import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LiveNotification
+import com.example.launcher.model.NowPlayingInfo
 import com.example.launcher.model.WidgetStackMode
 import com.example.launcher.model.WidgetType
+import com.example.launcher.system.VitroAppWidgetManager
 import com.example.launcher.viewmodel.LauncherUiOverlays
 import com.example.ui.theme.VitroAmber
 import com.example.ui.theme.VitroCyanAccent
@@ -74,10 +88,18 @@ fun VitroWidgetSection(
     config: LauncherConfig,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    isNotificationAccessEnabled: Boolean,
     onCycleStack: (Int) -> Unit,
     onToggleMedia: () -> Unit,
     onToggleFocusTimer: () -> Unit,
     onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onLaunchApp: (InstalledApp) -> Unit,
     onOpenStudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -93,10 +115,18 @@ fun VitroWidgetSection(
                 quickNote = config.quickNoteText,
                 telemetry = telemetry,
                 overlays = overlays,
+                notifications = notifications,
+                nowPlaying = nowPlaying,
+                installedApps = installedApps,
+                isNotificationAccessEnabled = isNotificationAccessEnabled,
                 onCycleStack = onCycleStack,
                 onToggleMedia = onToggleMedia,
                 onToggleFocusTimer = onToggleFocusTimer,
                 onResetFocusTimer = onResetFocusTimer,
+                onOpenNotification = onOpenNotification,
+                onDismissNotification = onDismissNotification,
+                onEnableNotificationAccess = onEnableNotificationAccess,
+                onLaunchApp = onLaunchApp,
                 onOpenStudio = onOpenStudio,
                 modifier = modifier
             )
@@ -110,10 +140,18 @@ fun VitroWidgetSection(
                 quickNote = config.quickNoteText,
                 telemetry = telemetry,
                 overlays = overlays,
+                notifications = notifications,
+                nowPlaying = nowPlaying,
+                installedApps = installedApps,
+                isNotificationAccessEnabled = isNotificationAccessEnabled,
                 onCycleStack = onCycleStack,
                 onToggleMedia = onToggleMedia,
                 onToggleFocusTimer = onToggleFocusTimer,
                 onResetFocusTimer = onResetFocusTimer,
+                onOpenNotification = onOpenNotification,
+                onDismissNotification = onDismissNotification,
+                onEnableNotificationAccess = onEnableNotificationAccess,
+                onLaunchApp = onLaunchApp,
                 onOpenStudio = onOpenStudio,
                 modifier = modifier
             )
@@ -124,46 +162,113 @@ fun VitroWidgetSection(
                 modifier = modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                val first = activeWidgets.first()
-                VitroGlassContainer(
-                    cornerRadius = 26.dp,
-                    glassOpacity = config.widgetGlassOpacity,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    WidgetContentBody(
-                        type = first,
-                        telemetry = telemetry,
-                        overlays = overlays,
-                        quickNote = config.quickNoteText,
-                        onToggleMedia = onToggleMedia,
-                        onToggleFocusTimer = onToggleFocusTimer,
-                        onResetFocusTimer = onResetFocusTimer,
-                        onOpenStudio = onOpenStudio
-                    )
-                }
-                if (activeWidgets.size > 1) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                activeWidgets.forEach { type ->
+                    VitroGlassContainer(
+                        cornerRadius = 26.dp,
+                        glassOpacity = config.widgetGlassOpacity,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        activeWidgets.drop(1).take(2).forEach { wType ->
-                            VitroGlassContainer(
-                                cornerRadius = 22.dp,
-                                glassOpacity = config.widgetGlassOpacity,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                CompactWidgetCard(
-                                    type = wType,
-                                    telemetry = telemetry,
-                                    overlays = overlays,
-                                    onToggleFocusTimer = onToggleFocusTimer
-                                )
-                            }
-                        }
+                        WidgetContentBody(
+                            type = type,
+                            telemetry = telemetry,
+                            overlays = overlays,
+                            notifications = notifications,
+                            nowPlaying = nowPlaying,
+                            installedApps = installedApps,
+                            isNotificationAccessEnabled = isNotificationAccessEnabled,
+                            quickNote = config.quickNoteText,
+                            onToggleMedia = onToggleMedia,
+                            onToggleFocusTimer = onToggleFocusTimer,
+                            onResetFocusTimer = onResetFocusTimer,
+                            onOpenNotification = onOpenNotification,
+                            onDismissNotification = onDismissNotification,
+                            onEnableNotificationAccess = onEnableNotificationAccess,
+                            onLaunchApp = onLaunchApp,
+                            onOpenStudio = onOpenStudio
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun SingleBuiltInGlassWidgetCard(
+    type: WidgetType,
+    config: LauncherConfig,
+    telemetry: DeviceTelemetry,
+    overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    isNotificationAccessEnabled: Boolean,
+    onToggleMedia: () -> Unit,
+    onToggleFocusTimer: () -> Unit,
+    onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onLaunchApp: (InstalledApp) -> Unit,
+    onOpenStudio: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    VitroGlassContainer(
+        cornerRadius = 26.dp,
+        glassOpacity = config.widgetGlassOpacity,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        WidgetContentBody(
+            type = type,
+            telemetry = telemetry,
+            overlays = overlays,
+            notifications = notifications,
+            nowPlaying = nowPlaying,
+            installedApps = installedApps,
+            isNotificationAccessEnabled = isNotificationAccessEnabled,
+            quickNote = config.quickNoteText,
+            onToggleMedia = onToggleMedia,
+            onToggleFocusTimer = onToggleFocusTimer,
+            onResetFocusTimer = onResetFocusTimer,
+            onOpenNotification = onOpenNotification,
+            onDismissNotification = onDismissNotification,
+            onEnableNotificationAccess = onEnableNotificationAccess,
+            onLaunchApp = onLaunchApp,
+            onOpenStudio = onOpenStudio
+        )
+    }
+}
+
+@Composable
+fun AndroidSystemWidgetCard(
+    appWidgetId: Int,
+    label: String,
+    height: Dp,
+    glassOpacity: Float,
+    appWidgetManager: VitroAppWidgetManager,
+    modifier: Modifier = Modifier
+) {
+    VitroGlassContainer(
+        cornerRadius = 26.dp,
+        glassOpacity = glassOpacity * 0.72f,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .testTag("android_system_widget_$appWidgetId")
+    ) {
+        AndroidView(
+            factory = { ctx ->
+                appWidgetManager.createHostView(ctx, appWidgetId)
+                    ?: android.widget.TextView(ctx).apply {
+                        text = "Widget Android: $label"
+                        setTextColor(android.graphics.Color.WHITE)
+                        setPadding(32, 32, 32, 32)
+                    }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(6.dp)
+        )
     }
 }
 
@@ -175,10 +280,18 @@ private fun SmartStackWidgetView(
     quickNote: String,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    isNotificationAccessEnabled: Boolean,
     onCycleStack: (Int) -> Unit,
     onToggleMedia: () -> Unit,
     onToggleFocusTimer: () -> Unit,
     onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onLaunchApp: (InstalledApp) -> Unit,
     onOpenStudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -222,10 +335,18 @@ private fun SmartStackWidgetView(
                         type = targetWidget,
                         telemetry = telemetry,
                         overlays = overlays,
+                        notifications = notifications,
+                        nowPlaying = nowPlaying,
+                        installedApps = installedApps,
+                        isNotificationAccessEnabled = isNotificationAccessEnabled,
                         quickNote = quickNote,
                         onToggleMedia = onToggleMedia,
                         onToggleFocusTimer = onToggleFocusTimer,
                         onResetFocusTimer = onResetFocusTimer,
+                        onOpenNotification = onOpenNotification,
+                        onDismissNotification = onDismissNotification,
+                        onEnableNotificationAccess = onEnableNotificationAccess,
+                        onLaunchApp = onLaunchApp,
                         onOpenStudio = onOpenStudio
                     )
                 }
@@ -272,10 +393,18 @@ private fun CardDeckWidgetView(
     quickNote: String,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    isNotificationAccessEnabled: Boolean,
     onCycleStack: (Int) -> Unit,
     onToggleMedia: () -> Unit,
     onToggleFocusTimer: () -> Unit,
     onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onLaunchApp: (InstalledApp) -> Unit,
     onOpenStudio: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -321,10 +450,18 @@ private fun CardDeckWidgetView(
                     type = widgets[currentIndex],
                     telemetry = telemetry,
                     overlays = overlays,
+                    notifications = notifications,
+                    nowPlaying = nowPlaying,
+                    installedApps = installedApps,
+                    isNotificationAccessEnabled = isNotificationAccessEnabled,
                     quickNote = quickNote,
                     onToggleMedia = onToggleMedia,
                     onToggleFocusTimer = onToggleFocusTimer,
                     onResetFocusTimer = onResetFocusTimer,
+                    onOpenNotification = onOpenNotification,
+                    onDismissNotification = onDismissNotification,
+                    onEnableNotificationAccess = onEnableNotificationAccess,
+                    onLaunchApp = onLaunchApp,
                     onOpenStudio = onOpenStudio
                 )
                 Row(
@@ -355,10 +492,18 @@ private fun WidgetContentBody(
     type: WidgetType,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
+    notifications: List<LiveNotification>,
+    nowPlaying: NowPlayingInfo,
+    installedApps: List<InstalledApp>,
+    isNotificationAccessEnabled: Boolean,
     quickNote: String,
     onToggleMedia: () -> Unit,
     onToggleFocusTimer: () -> Unit,
     onResetFocusTimer: () -> Unit,
+    onOpenNotification: (LiveNotification) -> Unit,
+    onDismissNotification: (String) -> Unit,
+    onEnableNotificationAccess: () -> Unit,
+    onLaunchApp: (InstalledApp) -> Unit,
     onOpenStudio: () -> Unit
 ) {
     when (type) {
@@ -386,19 +531,19 @@ private fun WidgetContentBody(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             imageVector = Icons.Rounded.WbTwilight,
-                            contentDescription = "Atmosfer",
+                            contentDescription = "Status",
                             tint = VitroAmber,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "27°C",
-                            style = MaterialTheme.typography.headlineMedium,
+                            text = "${telemetry.batteryPercent}%",
+                            style = MaterialTheme.typography.headlineSmall,
                             color = VitroTextPrimary
                         )
                     }
                     Text(
-                        text = "Cerah Berawan",
+                        text = "${telemetry.networkLabel} • ${"%.1f".format(telemetry.batteryTempC)}°C",
                         style = MaterialTheme.typography.labelMedium,
                         color = VitroCyanAccent
                     )
@@ -435,7 +580,7 @@ private fun WidgetContentBody(
                             )
                             Text(
                                 text = if (telemetry.isCharging) "Sedang mengisi • ${"%.1f".format(telemetry.batteryTempC)}°C"
-                                else "Suhu ${"%.1f".format(telemetry.batteryTempC)}°C • Optimal",
+                                else "Suhu ${"%.1f".format(telemetry.batteryTempC)}°C • ${if (telemetry.isPowerSaveMode) "Hemat Daya" else "Optimal"}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = VitroTextSecondary
                             )
@@ -469,7 +614,10 @@ private fun WidgetContentBody(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
                     Box(
                         modifier = Modifier
                             .size(46.dp)
@@ -487,41 +635,48 @@ private fun WidgetContentBody(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Sesi Fokus & Ambien",
+                            text = nowPlaying.title.ifBlank { "Sesi Fokus & Media" },
                             style = MaterialTheme.typography.titleSmall,
-                            color = VitroTextPrimary
+                            color = VitroTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "%02d:%02d • %s".format(
-                                mins,
-                                secs,
-                                if (overlays.isFocusRunning) "Berjalan" else "Siap"
-                            ),
-                            style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp),
-                            color = VitroCyanAccent
+                            text = if (nowPlaying.hasActiveSession) {
+                                nowPlaying.artist.ifBlank { nowPlaying.appName }
+                            } else {
+                                "%02d:%02d • %s".format(mins, secs, if (overlays.isFocusRunning) "Berjalan" else "Siap")
+                            },
+                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp),
+                            color = VitroCyanAccent,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     IconButton(
                         onClick = {
-                            onToggleFocusTimer()
-                            onToggleMedia()
+                            if (nowPlaying.hasActiveSession) onToggleMedia()
+                            else {
+                                onToggleFocusTimer()
+                                onToggleMedia()
+                            }
                         },
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(46.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.14f))
                     ) {
                         Icon(
-                            imageVector = if (overlays.isFocusRunning) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                            contentDescription = "Mulai atau jeda fokus",
+                            imageVector = if (overlays.isFocusRunning || nowPlaying.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = "Mulai atau jeda",
                             tint = VitroTextPrimary
                         )
                     }
                     IconButton(
                         onClick = onResetFocusTimer,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(44.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Rounded.Refresh,
@@ -576,7 +731,7 @@ private fun WidgetContentBody(
                         color = VitroTextPrimary
                     )
                     Text(
-                        text = "Semua jadwal tertata rapi hari ini",
+                        text = "Tersinkron dengan jam sistem HP",
                         style = MaterialTheme.typography.bodyMedium,
                         color = VitroTextSecondary,
                         maxLines = 1,
@@ -618,84 +773,220 @@ private fun WidgetContentBody(
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun CompactWidgetCard(
-    type: WidgetType,
-    telemetry: DeviceTelemetry,
-    overlays: LauncherUiOverlays,
-    onToggleFocusTimer: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Text(
-            text = type.label,
-            style = MaterialTheme.typography.labelMedium,
-            color = VitroCyanAccent,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        when (type) {
-            WidgetType.BATTERY_SYSTEM -> {
-                Text(
-                    text = "${telemetry.batteryPercent}%",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = VitroMint
+        WidgetType.LIVE_NOTIFICATIONS -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.NotificationsActive,
+                            contentDescription = null,
+                            tint = VitroCyanAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Notifikasi HP (${notifications.size})",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = VitroCyanAccent
+                        )
+                    }
+                    if (!isNotificationAccessEnabled) {
+                        Text(
+                            text = "Aktifkan →",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = VitroAmber,
+                            modifier = Modifier.clickable(onClick = onEnableNotificationAccess)
+                        )
+                    }
+                }
+
+                if (!isNotificationAccessEnabled) {
+                    Text(
+                        text = "Ketuk untuk mengaktifkan Akses Notifikasi agar pesan WhatsApp, SMS & aplikasi tampil real-time di sini.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VitroTextSecondary,
+                        modifier = Modifier.clickable(onClick = onEnableNotificationAccess)
+                    )
+                } else if (notifications.isEmpty()) {
+                    Text(
+                        text = "Tidak ada notifikasi baru saat ini.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = VitroTextSecondary
+                    )
+                } else {
+                    notifications.take(2).forEach { notif ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.White.copy(alpha = 0.08f))
+                                .clickable { onOpenNotification(notif) }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            if (notif.appIcon != null) {
+                                Image(
+                                    bitmap = notif.appIcon,
+                                    contentDescription = notif.appName,
+                                    modifier = Modifier.size(26.dp).clip(CircleShape)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "${notif.title} • ${notif.appName}",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = VitroTextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = notif.text,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = VitroTextSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            IconButton(
+                                onClick = { onDismissNotification(notif.key) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Hapus",
+                                    tint = VitroTextSecondary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        WidgetType.STORAGE_RAM -> {
+            val ramPct = (telemetry.ramUsedGb / telemetry.ramTotalGb).coerceIn(0.05f, 1f)
+            val storagePct = (telemetry.storageUsedGb / telemetry.storageTotalGb).coerceIn(0.05f, 1f)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Rounded.Memory, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(16.dp))
+                        Text("RAM Perangkat", style = MaterialTheme.typography.labelLarge, color = VitroTextPrimary)
+                    }
+                    Text(
+                        text = "${"%.1f".format(telemetry.ramUsedGb)} / ${"%.1f".format(telemetry.ramTotalGb)} GB",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = VitroCyanAccent
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { ramPct },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = VitroCyanAccent,
+                    trackColor = Color.White.copy(alpha = 0.16f)
                 )
-                Text(
-                    text = if (telemetry.isCharging) "Mengisi daya" else "${"%.1f".format(telemetry.batteryTempC)}°C",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VitroTextSecondary
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Icon(Icons.Rounded.Storage, contentDescription = null, tint = VitroMint, modifier = Modifier.size(16.dp))
+                        Text("Penyimpanan Internal", style = MaterialTheme.typography.labelLarge, color = VitroTextPrimary)
+                    }
+                    Text(
+                        text = "${"%.0f".format(telemetry.storageUsedGb)} / ${"%.0f".format(telemetry.storageTotalGb)} GB",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = VitroMint
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { storagePct },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = VitroMint,
+                    trackColor = Color.White.copy(alpha = 0.16f)
                 )
             }
-            WidgetType.FOCUS_MEDIA -> {
-                val mins = overlays.focusSecondsRemaining / 60
-                val secs = overlays.focusSecondsRemaining % 60
+        }
+
+        WidgetType.APP_SHORTCUTS -> {
+            val shortcutApps = installedApps.take(4)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Text(
-                    text = "%02d:%02d".format(mins, secs),
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = VitroTextPrimary,
-                    modifier = Modifier.bouncyClickable(onClick = onToggleFocusTimer)
+                    text = "Pintasan Cepat",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = VitroCyanAccent
                 )
-                Text(
-                    text = if (overlays.isFocusRunning) "Ketuk untuk jeda" else "Ketuk mulai",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VitroTextSecondary
-                )
-            }
-            WidgetType.CALENDAR_MINI -> {
-                Text(
-                    text = telemetry.dayNumber,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = VitroTextPrimary
-                )
-                Text(
-                    text = telemetry.monthText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VitroTextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            else -> {
-                Text(
-                    text = telemetry.timeText,
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = VitroTextPrimary
-                )
-                Text(
-                    text = telemetry.dateText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = VitroTextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    shortcutApps.forEach { app ->
+                        Column(
+                            modifier = Modifier
+                                .width(64.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable { onLaunchApp(app) }
+                                .padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            if (app.iconBitmap != null) {
+                                Image(
+                                    bitmap = app.iconBitmap,
+                                    contentDescription = app.label,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp))
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color.White.copy(alpha = 0.16f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(app.label.take(1).uppercase(), color = VitroTextPrimary)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = app.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = VitroTextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
             }
         }
     }

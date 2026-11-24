@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -94,11 +95,17 @@ fun AppDrawerOverlay(
     ) {
         BackHandler(onBack = onDismiss)
 
+        val safeTop = if (config.hideSystemStatusBar) {
+            Modifier.displayCutoutPadding().padding(top = 6.dp)
+        } else {
+            Modifier.statusBarsPadding()
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color(0xDD060B18))
-                .statusBarsPadding()
+                .then(safeTop)
                 .navigationBarsPadding()
                 .testTag("app_drawer_overlay")
         ) {

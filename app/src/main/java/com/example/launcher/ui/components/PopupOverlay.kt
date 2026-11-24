@@ -8,12 +8,15 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,10 +48,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LiveNotification
 import com.example.launcher.model.PopupMessage
 import com.example.launcher.model.PopupStyle
 import com.example.ui.theme.VitroCyanAccent
@@ -64,7 +69,9 @@ fun VitroPopupOverlay(
     onDismiss: () -> Unit,
     onLaunchApp: (InstalledApp) -> Unit,
     onToggleDockPin: (String) -> Unit,
-    onOpenAppInfo: (InstalledApp) -> Unit
+    onOpenAppInfo: (InstalledApp) -> Unit,
+    onOpenLiveNotification: (LiveNotification) -> Unit,
+    onDismissLiveNotification: (String) -> Unit
 ) {
     val activeStyle = if (popup?.isLockScreenContext == true) {
         config.lockPopupStyle
@@ -78,10 +85,16 @@ fun VitroPopupOverlay(
         PopupStyle.BOTTOM_GLASS_SHEET, PopupStyle.STACKED_DECK -> Alignment.BottomCenter
     }
 
+    val safeTop = if (config.hideSystemStatusBar) {
+        Modifier.displayCutoutPadding().padding(top = 48.dp)
+    } else {
+        Modifier.statusBarsPadding()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
+            .then(safeTop)
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 14.dp),
         contentAlignment = alignment
@@ -107,7 +120,9 @@ fun VitroPopupOverlay(
                     onDismiss = onDismiss,
                     onLaunchApp = onLaunchApp,
                     onToggleDockPin = onToggleDockPin,
-                    onOpenAppInfo = onOpenAppInfo
+                    onOpenAppInfo = onOpenAppInfo,
+                    onOpenLiveNotification = onOpenLiveNotification,
+                    onDismissLiveNotification = onDismissLiveNotification
                 )
             }
         }
@@ -123,7 +138,9 @@ private fun PopupContentByStyle(
     onDismiss: () -> Unit,
     onLaunchApp: (InstalledApp) -> Unit,
     onToggleDockPin: (String) -> Unit,
-    onOpenAppInfo: (InstalledApp) -> Unit
+    onOpenAppInfo: (InstalledApp) -> Unit,
+    onOpenLiveNotification: (LiveNotification) -> Unit,
+    onDismissLiveNotification: (String) -> Unit
 ) {
     val corner = config.popupCornerRadius.dp
 
@@ -132,7 +149,7 @@ private fun PopupContentByStyle(
             VitroGlassContainer(
                 cornerRadius = corner.coerceAtLeast(28.dp),
                 tintColor = Color(0xFF070C1B),
-                glassOpacity = (config.popupGlassOpacity + 0.42f).coerceAtMost(0.86f),
+                glassOpacity = (config.popupGlassOpacity + 0.42f).coerceAtMost(0.88f),
                 borderColor = VitroCyanAccent.copy(alpha = 0.55f),
                 modifier = Modifier
                     .widthIn(max = 420.dp)
@@ -145,7 +162,9 @@ private fun PopupContentByStyle(
                     onDismiss = onDismiss,
                     onLaunchApp = onLaunchApp,
                     onToggleDockPin = onToggleDockPin,
-                    onOpenAppInfo = onOpenAppInfo
+                    onOpenAppInfo = onOpenAppInfo,
+                    onOpenLiveNotification = onOpenLiveNotification,
+                    onDismissLiveNotification = onDismissLiveNotification
                 )
             }
         }
@@ -183,7 +202,7 @@ private fun PopupContentByStyle(
                 VitroGlassContainer(
                     cornerRadius = corner,
                     tintColor = Color(0xFF101C36),
-                    glassOpacity = (config.popupGlassOpacity + 0.35f).coerceAtMost(0.82f),
+                    glassOpacity = (config.popupGlassOpacity + 0.35f).coerceAtMost(0.84f),
                     borderColor = Color.White.copy(alpha = 0.45f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -193,7 +212,9 @@ private fun PopupContentByStyle(
                         onDismiss = onDismiss,
                         onLaunchApp = onLaunchApp,
                         onToggleDockPin = onToggleDockPin,
-                        onOpenAppInfo = onOpenAppInfo
+                        onOpenAppInfo = onOpenAppInfo,
+                        onOpenLiveNotification = onOpenLiveNotification,
+                        onDismissLiveNotification = onDismissLiveNotification
                     )
                 }
             }
@@ -207,6 +228,9 @@ private fun PopupContentByStyle(
                 borderColor = VitroCyanAccent.copy(alpha = 0.55f),
                 modifier = Modifier
                     .widthIn(max = 400.dp)
+                    .clickable {
+                        popup.liveNotification?.let(onOpenLiveNotification)
+                    }
                     .testTag("popup_compact_bubble")
             ) {
                 Row(
@@ -214,17 +238,27 @@ private fun PopupContentByStyle(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.NotificationsActive,
-                        contentDescription = null,
-                        tint = VitroCyanAccent,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    val iconBmp = popup.liveNotification?.appIcon
+                    if (iconBmp != null) {
+                        Image(
+                            bitmap = iconBmp,
+                            contentDescription = popup.badge,
+                            modifier = Modifier.size(22.dp).clip(CircleShape)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.NotificationsActive,
+                            contentDescription = null,
+                            tint = VitroCyanAccent,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                     Text(
                         text = "${popup.title}: ${popup.body}",
                         style = MaterialTheme.typography.labelLarge,
                         color = VitroTextPrimary,
                         maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                     IconButton(
@@ -259,7 +293,9 @@ private fun PopupContentByStyle(
                     onDismiss = onDismiss,
                     onLaunchApp = onLaunchApp,
                     onToggleDockPin = onToggleDockPin,
-                    onOpenAppInfo = onOpenAppInfo
+                    onOpenAppInfo = onOpenAppInfo,
+                    onOpenLiveNotification = onOpenLiveNotification,
+                    onDismissLiveNotification = onDismissLiveNotification
                 )
             }
         }
@@ -273,11 +309,18 @@ private fun PopupInnerBody(
     onDismiss: () -> Unit,
     onLaunchApp: (InstalledApp) -> Unit,
     onToggleDockPin: (String) -> Unit,
-    onOpenAppInfo: (InstalledApp) -> Unit
+    onOpenAppInfo: (InstalledApp) -> Unit,
+    onOpenLiveNotification: (LiveNotification) -> Unit,
+    onDismissLiveNotification: (String) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (popup.liveNotification != null) {
+                    Modifier.clickable { onOpenLiveNotification(popup.liveNotification) }
+                } else Modifier
+            )
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -291,19 +334,30 @@ private fun PopupInnerBody(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.weight(1f)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(VitroCyanAccent.copy(alpha = 0.22f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.NotificationsActive,
-                        contentDescription = null,
-                        tint = VitroCyanAccent,
-                        modifier = Modifier.size(20.dp)
+                val appIcon = popup.liveNotification?.appIcon ?: popup.targetApp?.iconBitmap
+                if (appIcon != null) {
+                    Image(
+                        bitmap = appIcon,
+                        contentDescription = popup.badge,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(12.dp))
                     )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(VitroCyanAccent.copy(alpha = 0.22f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.NotificationsActive,
+                            contentDescription = null,
+                            tint = VitroCyanAccent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -313,7 +367,10 @@ private fun PopupInnerBody(
                         Text(
                             text = popup.title,
                             style = MaterialTheme.typography.titleMedium,
-                            color = VitroTextPrimary
+                            color = VitroTextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Box(
                             modifier = Modifier
@@ -324,7 +381,8 @@ private fun PopupInnerBody(
                             Text(
                                 text = popup.badge,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = VitroTextPrimary
+                                color = VitroTextPrimary,
+                                maxLines = 1
                             )
                         }
                     }
@@ -332,13 +390,15 @@ private fun PopupInnerBody(
                     Text(
                         text = popup.body,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = VitroTextSecondary
+                        color = VitroTextSecondary,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
             IconButton(
                 onClick = onDismiss,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     imageVector = Icons.Rounded.Close,
@@ -348,7 +408,28 @@ private fun PopupInnerBody(
             }
         }
 
-        if (popup.targetApp != null) {
+        if (popup.liveNotification != null) {
+            val notif = popup.liveNotification
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PopupActionChip(
+                    label = "Buka Pesan",
+                    icon = Icons.Rounded.OpenInNew,
+                    accent = VitroCyanAccent,
+                    onClick = { onOpenLiveNotification(notif) },
+                    modifier = Modifier.weight(1f)
+                )
+                PopupActionChip(
+                    label = "Hapus",
+                    icon = Icons.Rounded.Close,
+                    accent = Color.White,
+                    onClick = { onDismissLiveNotification(notif.key) },
+                    modifier = Modifier.weight(0.8f)
+                )
+            }
+        } else if (popup.targetApp != null) {
             val app = popup.targetApp
             Row(
                 modifier = Modifier.fillMaxWidth(),
