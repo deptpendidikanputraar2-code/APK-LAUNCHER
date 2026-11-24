@@ -1,0 +1,6 @@
+{
+  "name": "Vitro Launcher",
+  "description": "Launcher Android bergaya kaca modern dengan kustomisasi dock bar, widget tumpuk, quick panel ala iPhone, tata letak indikator status, gaya pop-up, halaman home & lock screen, dan animasi transisi halus.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

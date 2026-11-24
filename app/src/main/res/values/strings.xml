@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">Vitro Launcher</string>
+    <string name="studio_title">Studio Vitro</string>
+    <string name="studio_subtitle">Atur setiap detail layar beranda &amp; layar kunci</string>
+    <string name="tab_dock">Dock Bar</string>
+    <string name="tab_widgets">Widget</string>
+    <string name="tab_quick_panel">Quick Panel</string>
+    <string name="tab_status">Indikator</string>
+    <string name="tab_popup">Pop-Up</string>
+    <string name="tab_pages">Halaman</string>
+    <string name="tab_animation">Transisi</string>
+    <string name="tab_wallpaper">Tema</string>
+    <string name="quick_panel_title">Pusat Kontrol</string>
+    <string name="app_drawer_title">Semua Aplikasi</string>
+    <string name="search_apps_hint">Cari aplikasi terpasang…</string>
+    <string name="lock_screen_hint">Geser ke atas atau ketuk untuk membuka</string>
+    <string name="cd_open_studio">Buka studio kustomisasi launcher</string>
+    <string name="cd_open_quick_panel">Buka Quick Panel bergaya kaca</string>
+    <string name="cd_open_lock_screen">Masuk ke mode layar kunci</string>
+    <string name="cd_open_app_drawer">Buka laci semua aplikasi</string>
+    <string name="cd_trigger_popup">Uji pratinjau pop-up</string>
+    <string name="cd_close">Tutup</string>
+    <string name="cd_wallpaper">Latar belakang layar beranda</string>
+</resources>
