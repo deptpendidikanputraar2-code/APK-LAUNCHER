@@ -18,6 +18,7 @@ import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.HomeWidgetPlacement
 import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LedAppRule
 import com.example.launcher.model.LiveNotification
 import com.example.launcher.model.LockClockColor
 import com.example.launcher.model.LockClockStyle
@@ -65,7 +66,9 @@ data class LauncherUiOverlays(
     val focusSecondsRemaining: Int = 25 * 60,
     val isFocusRunning: Boolean = false,
     val isMediaPlaying: Boolean = false,
-    val activeSmartStackIndex: Int = 0
+    val activeSmartStackIndex: Int = 0,
+    val testLed1Timestamp: Long = 0L,
+    val testLed2Timestamp: Long = 0L
 )
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -463,6 +466,45 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val active = if (current.activeNotifSoundId == id) BuiltInNotifSound.CRYSTAL_DEW.id
             else current.activeNotifSoundId
             current.copy(customNotifSounds = filtered, activeNotifSoundId = active)
+        }
+    }
+
+    // --- Dual BlackBerry LED Rules & Live Test ---
+    fun addLedAppRule(packageName: String, colorHex: Long) {
+        updateConfig { current ->
+            val existing = current.ledConfig.appRules
+            val updated = if (existing.any { it.packageName == packageName }) {
+                existing.map { if (it.packageName == packageName) it.copy(colorHex = colorHex) else it }
+            } else {
+                existing + LedAppRule(packageName = packageName, colorHex = colorHex)
+            }
+            current.copy(ledConfig = current.ledConfig.copy(appRules = updated))
+        }
+    }
+
+    fun updateLedAppColor(packageName: String, colorHex: Long) {
+        updateConfig { current ->
+            val updated = current.ledConfig.appRules.map {
+                if (it.packageName == packageName) it.copy(colorHex = colorHex) else it
+            }
+            current.copy(ledConfig = current.ledConfig.copy(appRules = updated))
+        }
+    }
+
+    fun removeLedAppRule(packageName: String) {
+        updateConfig { current ->
+            val updated = current.ledConfig.appRules.filterNot { it.packageName == packageName }
+            current.copy(ledConfig = current.ledConfig.copy(appRules = updated))
+        }
+    }
+
+    fun triggerLedTest(ledIndex: Int) {
+        val now = System.currentTimeMillis()
+        VitroEdgeControlManager.triggerLedTestPulse(ledIndex)
+        _overlays.value = if (ledIndex == 1) {
+            _overlays.value.copy(testLed1Timestamp = now)
+        } else {
+            _overlays.value.copy(testLed2Timestamp = now)
         }
     }
 

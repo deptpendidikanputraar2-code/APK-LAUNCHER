@@ -1,11 +1,12 @@
 <resources>
-    <string name="app_name">Vitro Launcher</string>
-    <string name="studio_title">Studio Vitro</string>
+    <string name="app_name">FeyyL</string>
+    <string name="studio_title">Studio FeyyL</string>
     <string name="studio_subtitle">Semua pengaturan &amp; sinkronisasi HP dalam satu tempat</string>
     <string name="tab_dock">Dock Bar</string>
     <string name="tab_widgets">Widget</string>
     <string name="tab_quick_panel">Quick Panel</string>
     <string name="tab_dynamic_island">Dynamic Island</string>
+    <string name="tab_led">Lampu LED</string>
     <string name="tab_sidebar">Sidebar</string>
     <string name="tab_status">Indikator</string>
     <string name="tab_popup">Pop-Up</string>
@@ -24,7 +25,7 @@
     <string name="cd_trigger_popup">Uji pratinjau pop-up</string>
     <string name="cd_close">Tutup</string>
     <string name="cd_wallpaper">Latar belakang layar beranda</string>
-    <string name="accessibility_service_label">Vitro Launcher • Kunci Layar &amp; Kontrol</string>
-    <string name="accessibility_service_description">Digunakan oleh Vitro Launcher untuk mengunci layar HP secara nyata saat ketuk 2 kali di beranda dan mengambil tangkapan layar dari Pusat Kontrol.</string>
-    <string name="notification_service_label">Vitro Launcher • Notifikasi &amp; Dynamic Island</string>
+    <string name="accessibility_service_label">FeyyL • Kunci Layar &amp; Kontrol</string>
+    <string name="accessibility_service_description">Digunakan oleh FeyyL untuk mengunci layar HP secara nyata saat ketuk 2 kali di beranda dan mengambil tangkapan layar dari Pusat Kontrol.</string>
+    <string name="notification_service_label">FeyyL • Notifikasi, Dynamic Island &amp; LED</string>
 </resources>

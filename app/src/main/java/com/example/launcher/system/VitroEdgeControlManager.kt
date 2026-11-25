@@ -5,8 +5,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.camera2.CameraCharacteristics
@@ -31,9 +35,14 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.example.launcher.QuickPanelActivity
 import com.example.launcher.VitroLockScreenActivity
+import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.EdgePanelTriggerZone
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LedBlinkPattern
+import com.example.launcher.model.LedPlacement
 import com.example.launcher.model.LiveNotification
+import com.example.launcher.ui.components.BlackBerryLedEvaluator
+import com.example.launcher.ui.components.ResolvedLedState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -76,6 +85,15 @@ object VitroEdgeControlManager {
     private var expandedIslandView: View? = null
     private var dismissExpandedRunnable: Runnable? = null
 
+    private var systemLedView: SystemDualLedView? = null
+    private var ledTickRunnable: Runnable? = null
+    private var systemIndicatorCondSig: String = ""
+    private var systemIndicatorCondStart: Long = System.currentTimeMillis()
+    @Volatile
+    private var manualTestLed1Start: Long = 0L
+    @Volatile
+    private var manualTestLed2Start: Long = 0L
+
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     fun isVitroInForeground(): Boolean = foregroundCounter.get() > 0
@@ -84,9 +102,10 @@ object VitroEdgeControlManager {
         foregroundCounter.incrementAndGet()
         if (isQuickPanel) isQuickPanelInForeground = true
         val appContext = context.applicationContext
-        // Hide system-wide persistent pill while inside Vitro so it never doubles up with Compose UI
+        // Hide system-wide persistent overlays while inside FeyyL so they never double up with Compose UI
         mainHandler.post {
             detachPersistentStatusIsland(appContext)
+            detachSystemLedOverlay(appContext)
             dismissExpandedIsland(appContext)
             if (isQuickPanel) removeTrigger(appContext)
         }
@@ -97,7 +116,7 @@ object VitroEdgeControlManager {
         if (remaining == 0) foregroundCounter.set(0)
         if (isQuickPanel) isQuickPanelInForeground = false
         val appContext = context.applicationContext
-        // Delay slightly so transitions between Vitro activities (e.g., MainActivity -> QuickPanelActivity) don't flicker
+        // Delay slightly so transitions between FeyyL activities (e.g., MainActivity -> QuickPanelActivity) don't flicker
         mainHandler.postDelayed({
             syncSystemWideUi(appContext, lastConfig)
         }, 180L)
@@ -109,12 +128,18 @@ object VitroEdgeControlManager {
         mainHandler.post {
             if (!interactive) {
                 detachPersistentStatusIsland(appContext)
+                detachSystemLedOverlay(appContext)
                 dismissExpandedIsland(appContext)
                 removeTrigger(appContext)
             } else {
                 syncSystemWideUi(appContext, lastConfig)
             }
         }
+    }
+
+    fun triggerLedTestPulse(ledIndex: Int) {
+        val now = System.currentTimeMillis()
+        if (ledIndex == 1) manualTestLed1Start = now else manualTestLed2Start = now
     }
 
     fun syncEdgeTrigger(
@@ -140,6 +165,7 @@ object VitroEdgeControlManager {
             if (!canOverlay || !isScreenInteractive) {
                 removeTrigger(appContext)
                 detachPersistentStatusIsland(appContext)
+                detachSystemLedOverlay(appContext)
                 dismissExpandedIsland(appContext)
                 return@post
             }
@@ -164,13 +190,33 @@ object VitroEdgeControlManager {
             } else {
                 detachPersistentStatusIsland(appContext)
             }
+
+            // 3. System-Wide Dual BlackBerry LED Lamps (shown ONLY over OTHER apps when active)
+            val ledCfg = config.ledConfig
+            val shouldShowSystemLed = !isVitroInForeground() &&
+                ledCfg.masterEnabled &&
+                ledCfg.showOverOtherApps
+            if (shouldShowSystemLed) {
+                syncSystemLedOverlay(appContext)
+            } else {
+                detachSystemLedOverlay(appContext)
+            }
         }
     }
 
     fun refreshSystemIslandContent(context: Context) {
-        if (statusIslandView == null) return
         val appContext = context.applicationContext
-        mainHandler.post { updatePersistentStatusTexts(appContext) }
+        mainHandler.post {
+            if (statusIslandView != null) {
+                updatePersistentStatusTexts(appContext)
+            }
+            if (!isVitroInForeground() && isScreenInteractive &&
+                lastConfig.ledConfig.masterEnabled && lastConfig.ledConfig.showOverOtherApps &&
+                Settings.canDrawOverlays(appContext)
+            ) {
+                syncSystemLedOverlay(appContext)
+            }
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -893,6 +939,286 @@ object VitroEdgeControlManager {
                 )
             }
             context.startActivity(intent)
+        }
+    }
+
+    // =========================================================================
+    // SYSTEM-WIDE DUAL BLACKBERRY LED OVERLAY (ACTIVE OVER ALL OTHER APPS)
+    // =========================================================================
+
+    private fun readQuickTelemetry(context: Context): DeviceTelemetry {
+        val (pct, charging) = readQuickBattery(context)
+        val netGlyph = readQuickNetworkGlyph(context)
+        val audio = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val ringer = runCatching { audio?.ringerMode ?: AudioManager.RINGER_MODE_NORMAL }
+            .getOrDefault(AudioManager.RINGER_MODE_NORMAL)
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return DeviceTelemetry(
+            batteryPercent = pct,
+            isCharging = charging,
+            isWifiConnected = netGlyph == "Wi-Fi",
+            isCellularConnected = netGlyph == "5G",
+            networkLabel = netGlyph,
+            ringerMode = ringer,
+            isDndEnabled = ringer == AudioManager.RINGER_MODE_SILENT,
+            isPowerSaveMode = pm?.isPowerSaveMode ?: false
+        )
+    }
+
+    private fun syncSystemLedOverlay(context: Context) {
+        val appContext = context.applicationContext
+        val ledCfg = lastConfig.ledConfig
+        val now = System.currentTimeMillis()
+        val telemetry = readQuickTelemetry(appContext)
+
+        val sig = "${telemetry.isCharging}|${telemetry.batteryPercent <= 20}|${telemetry.batteryPercent >= 98}|" +
+            "${telemetry.ringerMode}|${telemetry.networkLabel}|${ledCfg.indicatorTrigger}"
+        if (sig != systemIndicatorCondSig) {
+            systemIndicatorCondSig = sig
+            systemIndicatorCondStart = now
+        }
+
+        val led1 = BlackBerryLedEvaluator.evaluateAppLed(
+            config = ledCfg,
+            notifications = NotificationHub.notifications.value,
+            nowMillis = now,
+            manualTestStartMillis = manualTestLed1Start
+        )
+        val led2 = BlackBerryLedEvaluator.evaluateIndicatorLed(
+            config = ledCfg,
+            telemetry = telemetry,
+            nowMillis = now,
+            conditionStartMillis = systemIndicatorCondStart,
+            manualTestStartMillis = manualTestLed2Start
+        )
+
+        if (!led1.isActive && !led2.isActive) {
+            detachSystemLedOverlay(appContext)
+            return
+        }
+
+        val density = appContext.resources.displayMetrics.density
+        val ledView = systemLedView ?: attachSystemLedOverlay(appContext, density) ?: return
+        ledView.updateStates(led1, led2, ledCfg.placement, ledCfg.spacingDp, now)
+        updateSystemLedWindowPosition(appContext, ledView, density)
+
+        // Schedule lightweight blink tick ONLY when at least one active LED uses a blink pattern (or duration expiry)
+        ledTickRunnable?.let { mainHandler.removeCallbacks(it) }
+        val needsFastTick = (led1.isActive && led1.pattern != LedBlinkPattern.SOLID) ||
+            (led2.isActive && led2.pattern != LedBlinkPattern.SOLID)
+        val needsExpiryTick = (led1.isActive && ledCfg.appLed.durationSeconds > 0) ||
+            (led2.isActive && ledCfg.indicatorLed.durationSeconds > 0)
+
+        if (needsFastTick || needsExpiryTick) {
+            val tickMs = if (needsFastTick) {
+                if (telemetry.isPowerSaveMode) 95L else 45L
+            } else {
+                1000L
+            }
+            val nextTick = Runnable {
+                if (!isVitroInForeground() && isScreenInteractive && systemLedView != null) {
+                    syncSystemLedOverlay(appContext)
+                }
+            }
+            ledTickRunnable = nextTick
+            mainHandler.postDelayed(nextTick, tickMs)
+        }
+    }
+
+    private fun attachSystemLedOverlay(context: Context, density: Float): SystemDualLedView? {
+        return runCatching {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return null
+            val view = SystemDualLedView(context).apply {
+                setOnClickListener {
+                    val notif = latestAppNotification
+                    if (notif != null) {
+                        NotificationHub.openNotification(context.applicationContext, notif)
+                    }
+                }
+            }
+            val params = buildSystemLedLayoutParams(context, density)
+            wm.addView(view, params)
+            systemLedView = view
+            view
+        }.getOrNull()
+    }
+
+    private fun updateSystemLedWindowPosition(context: Context, view: SystemDualLedView, density: Float) {
+        runCatching {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager ?: return
+            wm.updateViewLayout(view, buildSystemLedLayoutParams(context, density))
+        }
+    }
+
+    private fun buildSystemLedLayoutParams(context: Context, density: Float): WindowManager.LayoutParams {
+        val ledCfg = lastConfig.ledConfig
+        val islandCfg = lastConfig.dynamicIsland
+        val maxSizeDp = maxOf(ledCfg.appLed.sizeDp, ledCfg.indicatorLed.sizeDp).coerceIn(6f, 18f)
+        val haloBoxDp = (maxSizeDp * 2.6f).coerceAtLeast(24f)
+
+        val widthPx: Int
+        val heightPx = (haloBoxDp * density).toInt()
+        val gravity: Int
+        val xPos: Int
+        val yPos: Int
+
+        if (ledCfg.placement == LedPlacement.BESIDE_DYNAMIC_ISLAND) {
+            val totalWidthDp = islandCfg.widthDp.coerceIn(148f, 230f) + (ledCfg.spacingDp * 2f) + (haloBoxDp * 2f)
+            widthPx = (totalWidthDp * density).toInt()
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            xPos = (islandCfg.horizontalOffsetDp * density).toInt()
+            yPos = ((islandCfg.topOffsetDp + (islandCfg.heightDp / 2f) - (haloBoxDp / 2f)).coerceAtLeast(2f) * density).toInt()
+        } else {
+            val totalWidthDp = (haloBoxDp * 2f) + ledCfg.spacingDp
+            widthPx = (totalWidthDp * density).toInt()
+            gravity = when (ledCfg.placement) {
+                LedPlacement.TOP_LEFT_PAIR -> Gravity.TOP or Gravity.START
+                LedPlacement.TOP_CENTER_PAIR -> Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                else -> Gravity.TOP or Gravity.END
+            }
+            xPos = if (ledCfg.placement == LedPlacement.TOP_CENTER_PAIR) 0 else (ledCfg.horizontalOffsetDp * density).toInt()
+            yPos = (ledCfg.topOffsetDp.coerceIn(2f, 80f) * density).toInt()
+        }
+
+        return WindowManager.LayoutParams(
+            widthPx,
+            heightPx,
+            overlayWindowType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            this.gravity = gravity
+            this.x = xPos
+            this.y = yPos
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+    }
+
+    private fun detachSystemLedOverlay(context: Context) {
+        ledTickRunnable?.let { mainHandler.removeCallbacks(it) }
+        ledTickRunnable = null
+        val view = systemLedView ?: return
+        runCatching {
+            val wm = context.applicationContext.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+            wm?.removeViewImmediate(view)
+        }
+        systemLedView = null
+    }
+
+    /**
+     * Ultra-lightweight native Android View rendering 1 or 2 glowing BlackBerry LED diodes
+     * with radial bloom + crisp specular lens pinpoint over any third-party app.
+     */
+    private class SystemDualLedView(context: Context) : View(context) {
+        private val density = context.resources.displayMetrics.density
+        private val housingPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val bloomPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val specPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+
+        private var led1: ResolvedLedState? = null
+        private var led2: ResolvedLedState? = null
+        private var placement: LedPlacement = LedPlacement.TOP_RIGHT_PAIR
+        private var spacingDp: Float = 10f
+        private var nowMs: Long = 0L
+        var latestAppNotification: LiveNotification? = null
+            private set
+
+        fun updateStates(
+            s1: ResolvedLedState,
+            s2: ResolvedLedState,
+            place: LedPlacement,
+            spacing: Float,
+            now: Long
+        ) {
+            led1 = s1
+            led2 = s2
+            placement = place
+            spacingDp = spacing
+            nowMs = now
+            latestAppNotification = s1.triggerNotification
+            invalidate()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val s1 = led1
+            val s2 = led2
+            val cy = height / 2f
+
+            if (placement == LedPlacement.BESIDE_DYNAMIC_ISLAND) {
+                if (s1?.isActive == true) {
+                    val cx = (s1.sizeDp * 1.3f * density).coerceAtLeast(12f * density)
+                    drawDiode(canvas, cx, cy, s1)
+                }
+                if (s2?.isActive == true) {
+                    val cx = width - (s2.sizeDp * 1.3f * density).coerceAtLeast(12f * density)
+                    drawDiode(canvas, cx, cy, s2)
+                }
+            } else {
+                val gapPx = spacingDp * density
+                val cx1 = width * 0.5f - (gapPx * 0.5f) - (7f * density)
+                val cx2 = width * 0.5f + (gapPx * 0.5f) + (7f * density)
+                if (s1?.isActive == true && s2?.isActive == true) {
+                    drawDiode(canvas, cx1, cy, s1)
+                    drawDiode(canvas, cx2, cy, s2)
+                } else if (s1?.isActive == true) {
+                    drawDiode(canvas, width / 2f, cy, s1)
+                } else if (s2?.isActive == true) {
+                    drawDiode(canvas, width / 2f, cy, s2)
+                }
+            }
+        }
+
+        private fun drawDiode(canvas: Canvas, cx: Float, cy: Float, state: ResolvedLedState) {
+            val intensity = BlackBerryLedEvaluator.computeIntensity(state.pattern, state.blinkIntervalMs, nowMs)
+            if (intensity <= 0.015f) return
+
+            val argb = state.colorHex.toInt()
+            val r = Color.red(argb)
+            val g = Color.green(argb)
+            val b = Color.blue(argb)
+            val coreRadius = (state.sizeDp * density / 2f).coerceAtLeast(3f)
+            val glow = state.glowIntensity.coerceIn(0.2f, 1f)
+
+            // Recessed bezel ring
+            housingPaint.color = Color.argb((170 * intensity).toInt(), 8, 12, 22)
+            canvas.drawCircle(cx, cy, coreRadius * 1.24f, housingPaint)
+
+            // Outer radial halo bloom
+            val outerRadius = coreRadius * (2.05f + 0.55f * glow)
+            bloomPaint.shader = RadialGradient(
+                cx,
+                cy,
+                outerRadius,
+                intArrayOf(
+                    Color.argb((160 * glow * intensity).toInt().coerceIn(0, 255), r, g, b),
+                    Color.argb((55 * glow * intensity).toInt().coerceIn(0, 255), r, g, b),
+                    Color.TRANSPARENT
+                ),
+                floatArrayOf(0f, 0.45f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawCircle(cx, cy, outerRadius, bloomPaint)
+
+            // Vivid luminous diode core
+            corePaint.color = Color.argb((250 * intensity).toInt().coerceIn(0, 255), r, g, b)
+            canvas.drawCircle(cx, cy, coreRadius, corePaint)
+
+            // Specular white highlight dot
+            specPaint.alpha = (235 * intensity).toInt().coerceIn(0, 255)
+            canvas.drawCircle(
+                cx - coreRadius * 0.28f,
+                cy - coreRadius * 0.28f,
+                (coreRadius * 0.28f).coerceAtLeast(1.2f),
+                specPaint
+            )
         }
     }
 }

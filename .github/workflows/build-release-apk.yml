@@ -1,4 +1,4 @@
-name: Build & Release Vitro Launcher APK
+name: Build & Release FeyyL APK
 
 on:
   push:
@@ -55,21 +55,21 @@ jobs:
       - name: Prepare APK file
         run: |
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/VitroLauncher-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk dist/FeyyL-debug.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VitroLauncher-APK
-          path: dist/VitroLauncher-debug.apk
+          name: FeyyL-APK
+          path: dist/FeyyL-debug.apk
 
       - name: Publish APK to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-apk
-          name: Vitro Launcher (Latest APK)
-          body: "Build otomatis APK **Vitro Launcher**. Unduh file `VitroLauncher-debug.apk` di bawah untuk memasangnya di perangkat Android."
-          files: dist/VitroLauncher-debug.apk
+          name: FeyyL (Latest APK)
+          body: "Build otomatis APK **FeyyL**. Unduh file `FeyyL-debug.apk` di bawah untuk memasangnya di perangkat Android."
+          files: dist/FeyyL-debug.apk
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

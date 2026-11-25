@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "Vitro Launcher"
+rootProject.name = "FeyyL"
 
 include(":app")

@@ -382,25 +382,25 @@ fun SystemSyncStudioTab(
 
         SyncPermissionRow(
             title = "1. Launcher Utama HP",
-            subtitle = "Jadikan Vitro Launcher sebagai beranda default saat menekan tombol Home",
+            subtitle = "Jadikan FeyyL sebagai beranda default saat menekan tombol Home",
             granted = syncStatus.isDefaultLauncher,
             onClick = onOpenDefaultLauncher
         )
         SyncPermissionRow(
             title = "2. Akses Notifikasi HP Nyata",
-            subtitle = "Menampilkan pesan WhatsApp, SMS, Media & aplikasi di Home, Lock Screen & Dynamic Island",
+            subtitle = "Menampilkan pesan WhatsApp, SMS, Media & aplikasi di Home, Lock Screen, Dynamic Island & Lampu LED",
             granted = syncStatus.isNotificationListenerEnabled,
             onClick = onOpenNotificationAccess
         )
         SyncPermissionRow(
             title = "3. Ketuk 2x Kunci Layar & Screenshot",
-            subtitle = "Aktifkan Layanan Aksesibilitas Vitro untuk mengunci HP nyata & tangkapan layar",
+            subtitle = "Aktifkan Layanan Aksesibilitas FeyyL untuk mengunci HP nyata & tangkapan layar",
             granted = syncStatus.isAccessibilityEnabled,
             onClick = onOpenAccessibility
         )
         SyncPermissionRow(
-            title = "4. Ganti Panel Kontrol Bawaan HP",
-            subtitle = "Izin 'Tampil di atas aplikasi lain' agar geser tepi kanan atas membuka Pusat Kontrol Vitro di semua aplikasi",
+            title = "4. Ganti Panel Kontrol, Dynamic Island & LED Lintas Aplikasi",
+            subtitle = "Izin 'Tampil di atas aplikasi lain' agar Pusat Kontrol, Dynamic Island & Lampu LED FeyyL aktif di semua aplikasi",
             granted = syncStatus.isOverlayPermissionGranted,
             onClick = onOpenOverlayPermission
         )

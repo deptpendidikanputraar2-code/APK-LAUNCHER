@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.example.launcher.model.BatteryIconStyle
+import com.example.launcher.model.BlackBerryLedConfig
 import com.example.launcher.model.CustomNotificationSound
 import com.example.launcher.model.DockColorPreset
 import com.example.launcher.model.DockLayoutMode
@@ -18,6 +19,11 @@ import com.example.launcher.model.DynamicIslandStyle
 import com.example.launcher.model.EdgePanelTriggerZone
 import com.example.launcher.model.HomeWidgetPlacement
 import com.example.launcher.model.LauncherConfig
+import com.example.launcher.model.LedAppRule
+import com.example.launcher.model.LedBlinkPattern
+import com.example.launcher.model.LedIndicatorTrigger
+import com.example.launcher.model.LedLampConfig
+import com.example.launcher.model.LedPlacement
 import com.example.launcher.model.LockClockColor
 import com.example.launcher.model.LockClockStyle
 import com.example.launcher.model.LockSecurityMode
@@ -112,6 +118,7 @@ class LauncherPreferencesRepository(private val context: Context) {
         val DI_AUTO_NOTIF = booleanPreferencesKey("di_auto_notif")
         val DI_AUTO_SYS = booleanPreferencesKey("di_auto_sys")
         val DI_DUAL_SPLIT = booleanPreferencesKey("di_dual_split")
+        val BB_LED_CONFIG_V1 = stringPreferencesKey("bb_led_config_v1")
 
         val HIDE_SYSTEM_STATUS_BAR = booleanPreferencesKey("hide_system_status_bar")
         val STATUS_POSITION = stringPreferencesKey("status_position")
@@ -238,6 +245,9 @@ class LauncherPreferencesRepository(private val context: Context) {
                     showDualSplitBubble = prefs[Keys.DI_DUAL_SPLIT] ?: diDef.showDualSplitBubble
                 ),
 
+                ledConfig = prefs[Keys.BB_LED_CONFIG_V1]?.let { decodeLedConfig(it, defaults.ledConfig) }
+                    ?: defaults.ledConfig,
+
                 hideSystemStatusBar = prefs[Keys.HIDE_SYSTEM_STATUS_BAR] ?: defaults.hideSystemStatusBar,
                 statusPosition = prefs[Keys.STATUS_POSITION].toEnumOrDefault(defaults.statusPosition),
                 statusAlignment = prefs[Keys.STATUS_ALIGNMENT].toEnumOrDefault(defaults.statusAlignment),
@@ -350,6 +360,7 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.DI_AUTO_NOTIF] = di.autoExpandOnNotification
             prefs[Keys.DI_AUTO_SYS] = di.autoExpandOnSystemStatus
             prefs[Keys.DI_DUAL_SPLIT] = di.showDualSplitBubble
+            prefs[Keys.BB_LED_CONFIG_V1] = encodeLedConfig(config.ledConfig)
 
             prefs[Keys.HIDE_SYSTEM_STATUS_BAR] = config.hideSystemStatusBar
             prefs[Keys.STATUS_POSITION] = config.statusPosition.name
@@ -527,6 +538,82 @@ class LauncherPreferencesRepository(private val context: Context) {
             parallaxEnabled = parts[8].toBooleanStrictOrNull() ?: fallback.parallaxEnabled,
             parallaxStrength = parts[9].toFloatOrNull()?.coerceIn(0f, 1f) ?: fallback.parallaxStrength,
             liveSpeed = parts[10].toFloatOrNull()?.coerceIn(0.3f, 2.0f) ?: fallback.liveSpeed
+        )
+    }
+
+    private fun encodeLedConfig(led: BlackBerryLedConfig): String {
+        val rulesStr = led.appRules.joinToString(",") { r ->
+            val safePkg = r.packageName.replace("|", "").replace("~", "").replace(",", "").replace(";", "")
+            "$safePkg;${r.colorHex}"
+        }
+        return listOf(
+            led.masterEnabled.toString(),
+            led.placement.name,
+            "%.1f".format(Locale.US, led.topOffsetDp),
+            "%.1f".format(Locale.US, led.horizontalOffsetDp),
+            "%.1f".format(Locale.US, led.spacingDp),
+            led.showOnLockScreen.toString(),
+            led.showOverOtherApps.toString(),
+            encodeLamp(led.appLed),
+            led.appLedAllAppsFallback.toString(),
+            rulesStr,
+            encodeLamp(led.indicatorLed),
+            led.indicatorTrigger.name,
+            led.indicatorUseAutoStatusColor.toString()
+        ).joinToString("~")
+    }
+
+    private fun encodeLamp(lamp: LedLampConfig): String = listOf(
+        lamp.enabled.toString(),
+        lamp.colorHex.toString(),
+        lamp.pattern.name,
+        lamp.blinkIntervalMs.toString(),
+        lamp.durationSeconds.toString(),
+        "%.1f".format(Locale.US, lamp.sizeDp),
+        "%.2f".format(Locale.US, lamp.glowIntensity)
+    ).joinToString(":")
+
+    private fun decodeLamp(raw: String, fallback: LedLampConfig): LedLampConfig {
+        val p = raw.split(":")
+        if (p.size < 7) return fallback
+        return LedLampConfig(
+            enabled = p[0].toBooleanStrictOrNull() ?: fallback.enabled,
+            colorHex = p[1].toLongOrNull() ?: fallback.colorHex,
+            pattern = p[2].toEnumOrDefault(fallback.pattern),
+            blinkIntervalMs = (p[3].toIntOrNull() ?: fallback.blinkIntervalMs).coerceIn(400, 4500),
+            durationSeconds = (p[4].toIntOrNull() ?: fallback.durationSeconds).coerceIn(0, 900),
+            sizeDp = (p[5].toFloatOrNull() ?: fallback.sizeDp).coerceIn(6f, 18f),
+            glowIntensity = (p[6].toFloatOrNull() ?: fallback.glowIntensity).coerceIn(0.2f, 1f)
+        )
+    }
+
+    private fun decodeLedConfig(raw: String, fallback: BlackBerryLedConfig): BlackBerryLedConfig {
+        val p = raw.split("~")
+        if (p.size < 13) return fallback
+        val parsedRules = if (p[9].isBlank()) {
+            emptyList()
+        } else {
+            p[9].split(",").mapNotNull { entry ->
+                val parts = entry.split(";")
+                val pkg = parts.getOrNull(0)?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val hex = parts.getOrNull(1)?.toLongOrNull() ?: fallback.appLed.colorHex
+                LedAppRule(pkg, hex)
+            }
+        }
+        return BlackBerryLedConfig(
+            masterEnabled = p[0].toBooleanStrictOrNull() ?: fallback.masterEnabled,
+            placement = p[1].toEnumOrDefault(fallback.placement),
+            topOffsetDp = (p[2].toFloatOrNull() ?: fallback.topOffsetDp).coerceIn(2f, 80f),
+            horizontalOffsetDp = (p[3].toFloatOrNull() ?: fallback.horizontalOffsetDp).coerceIn(4f, 140f),
+            spacingDp = (p[4].toFloatOrNull() ?: fallback.spacingDp).coerceIn(4f, 36f),
+            showOnLockScreen = p[5].toBooleanStrictOrNull() ?: fallback.showOnLockScreen,
+            showOverOtherApps = p[6].toBooleanStrictOrNull() ?: fallback.showOverOtherApps,
+            appLed = decodeLamp(p[7], fallback.appLed),
+            appLedAllAppsFallback = p[8].toBooleanStrictOrNull() ?: fallback.appLedAllAppsFallback,
+            appRules = parsedRules,
+            indicatorLed = decodeLamp(p[10], fallback.indicatorLed),
+            indicatorTrigger = p[11].toEnumOrDefault(fallback.indicatorTrigger),
+            indicatorUseAutoStatusColor = p[12].toBooleanStrictOrNull() ?: fallback.indicatorUseAutoStatusColor
         )
     }
 

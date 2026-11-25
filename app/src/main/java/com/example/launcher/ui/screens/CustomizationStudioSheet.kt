@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DashboardCustomize
 import androidx.compose.material.icons.rounded.Dock
+import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PhoneAndroid
@@ -84,6 +85,7 @@ private enum class StudioCategory(val label: String, val keywords: String, val i
     WALLPAPER("Wallpaper", "wallpaper live animasi glass kaca blur galeri foto bokeh paralaks 3d", Icons.Rounded.Wallpaper),
     SEARCH("Pencarian", "search cari bentuk warna posisi diy", Icons.Rounded.Search),
     DYNAMIC_ISLAND("Dynamic Island", "iphone 18 pro max musik notifikasi gelembung", Icons.Rounded.AutoAwesome),
+    BB_LED("Lampu LED", "led blackberry lampu kedip warna notifikasi aplikasi indikator baterai", Icons.Rounded.Lightbulb),
     POPUP("Notif & Suara", "suara notifikasi audio popup ganti bawaan", Icons.Rounded.NotificationsActive),
     PAGES("Layar Kunci & Jam", "adaptive clock sandi pin ketuk 2x diy", Icons.Rounded.ViewCarousel),
     WIDGETS("Widget", "widget kaca analog dunia cuaca musik android diy", Icons.Rounded.DashboardCustomize),
@@ -133,6 +135,10 @@ fun CustomizationStudioOverlay(
     onPreviewNotifSound: (String) -> Unit,
     onRequestAddCustomSound: () -> Unit,
     onRemoveCustomSound: (String) -> Unit,
+    onAddLedAppRule: (String, Long) -> Unit,
+    onUpdateLedAppColor: (String, Long) -> Unit,
+    onRemoveLedAppRule: (String) -> Unit,
+    onTestLed: (Int) -> Unit,
     onPreviewQuickPanel: () -> Unit,
     onPreviewHomePopup: () -> Unit,
     onPreviewLockPopup: () -> Unit,
@@ -355,6 +361,15 @@ fun CustomizationStudioOverlay(
                         StudioCategory.DYNAMIC_ISLAND -> DynamicIslandStudioTab(
                             config = config,
                             onUpdate = onUpdateConfig
+                        )
+                        StudioCategory.BB_LED -> BlackBerryLedStudioTab(
+                            config = config,
+                            installedApps = installedApps,
+                            onUpdate = onUpdateConfig,
+                            onAddLedAppRule = onAddLedAppRule,
+                            onUpdateLedAppColor = onUpdateLedAppColor,
+                            onRemoveLedAppRule = onRemoveLedAppRule,
+                            onTestLed = onTestLed
                         )
                         StudioCategory.SIDEBAR -> SidebarStudioTab(
                             config = config,

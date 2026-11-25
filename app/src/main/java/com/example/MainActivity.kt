@@ -35,6 +35,7 @@ import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.system.AvailableAndroidWidget
 import com.example.launcher.system.SystemSyncChecker
 import com.example.launcher.system.VitroEdgeControlManager
+import com.example.launcher.ui.components.BlackBerryDualLedOverlay
 import com.example.launcher.ui.components.QuickPanelOverlay
 import com.example.launcher.ui.components.UniversalSearchOverlay
 import com.example.launcher.ui.components.VitroDynamicIsland
@@ -484,6 +485,10 @@ private fun VitroLauncherRoot(
             onPreviewNotifSound = viewModel::previewNotificationSound,
             onRequestAddCustomSound = onRequestAddCustomSound,
             onRemoveCustomSound = viewModel::removeCustomNotificationSound,
+            onAddLedAppRule = viewModel::addLedAppRule,
+            onUpdateLedAppColor = viewModel::updateLedAppColor,
+            onRemoveLedAppRule = viewModel::removeLedAppRule,
+            onTestLed = viewModel::triggerLedTest,
             onPreviewQuickPanel = viewModel::openQuickPanel,
             onPreviewHomePopup = {
                 viewModel.closeStudio()
@@ -519,6 +524,20 @@ private fun VitroLauncherRoot(
                 onOpenNotification = { notif -> viewModel.openNotification(notif, context) },
                 onDismissNotification = viewModel::dismissLiveNotification,
                 modifier = Modifier.align(Alignment.TopCenter)
+            )
+        }
+
+        // Layer 8b: Dual BlackBerry Notification & System Indicator LEDs (Home & Lock Screen)
+        if (config.ledConfig.masterEnabled && !overlays.isQuickPanelOpen) {
+            BlackBerryDualLedOverlay(
+                ledConfig = config.ledConfig,
+                islandConfig = config.dynamicIsland,
+                telemetry = telemetry,
+                notifications = notifications,
+                isLockScreen = overlays.isLockScreenActive,
+                testLed1Timestamp = overlays.testLed1Timestamp,
+                testLed2Timestamp = overlays.testLed2Timestamp,
+                onTapAppLedNotification = { notif -> viewModel.openNotification(notif, context) }
             )
         }
 

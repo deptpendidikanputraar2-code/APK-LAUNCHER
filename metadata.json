@@ -1,6 +1,6 @@
 {
-  "name": "Vitro Launcher",
-  "description": "Launcher Android bergaya kaca modern dengan kustomisasi dock bar, widget tumpuk, quick panel ala iPhone, tata letak indikator status, gaya pop-up, halaman home & lock screen, dan animasi transisi halus.",
+  "name": "FeyyL",
+  "description": "FeyyL — Launcher Android bergaya kaca modern dengan lampu LED notifikasi ganda ala BlackBerry, Dynamic Island, pusat kontrol lintas aplikasi, dock bar, widget tumpuk, dan layar kunci adaptif.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

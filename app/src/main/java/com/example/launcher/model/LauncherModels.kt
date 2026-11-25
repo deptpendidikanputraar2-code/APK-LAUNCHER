@@ -128,6 +128,93 @@ data class DynamicIslandConfig(
     val showDualSplitBubble: Boolean = true
 )
 
+enum class LedBlinkPattern(val label: String, val subtitle: String) {
+    CLASSIC_BB("Kedip Klasik BB", "Kilatan tajam singkat ala LED BlackBerry asli"),
+    DOUBLE_PULSE("Kedip Ganda 2x", "Dua kedipan cepat lalu jeda ala BBM"),
+    HEARTBEAT("Denyut Jantung", "Kedipan ganda halus berirama organik"),
+    BREATHING("Napas Halus", "Menyala & meredup perlahan elegan"),
+    STROBE_FAST("Kedip Cepat", "Kedipan cepat tegas untuk pesan penting"),
+    SOLID("Menyala Terus", "Lampu LED menyala stabil tanpa berkedip")
+}
+
+enum class LedPlacement(val label: String, val subtitle: String) {
+    TOP_RIGHT_PAIR("Pojok Kanan Atas (BlackBerry)", "Posisi klasik 2 lampu LED di sudut kanan atas"),
+    TOP_LEFT_PAIR("Pojok Kiri Atas", "Dua lampu LED sejajar di sudut kiri atas"),
+    BESIDE_DYNAMIC_ISLAND("Mengapit Dynamic Island", "LED 1 di kiri & LED 2 di kanan Dynamic Island"),
+    TOP_CENTER_PAIR("Tengah Atas", "Dua lampu LED berdampingan di tepi atas tengah")
+}
+
+enum class LedColorPreset(val label: String, val hex: Long) {
+    BB_RED("Merah BlackBerry", 0xFFFF1744L),
+    BBM_GREEN("Hijau BBM", 0xFF00E676L),
+    CYAN_PULSE("Biru Sian", 0xFF00E5FFL),
+    ROYAL_BLUE("Biru Royal", 0xFF2979FFL),
+    AMBER_GOLD("Kuning Amber", 0xFFFFCA28L),
+    VIOLET_NEON("Ungu Violet", 0xFFD500F9L),
+    HOT_PINK("Pink Neon", 0xFFFF4081L),
+    FLAME_ORANGE("Oranye Api", 0xFFFF6D00L),
+    LIME_SPARK("Hijau Lime", 0xFFC6FF00L),
+    PURE_WHITE("Putih Kristal", 0xFFFFFFFFL)
+}
+
+enum class LedIndicatorTrigger(val label: String, val subtitle: String) {
+    SMART_AUTO("Otomatis Pintar BB", "Cas=Amber, Penuh=Hijau, Lemah=Merah, Sinyal=Biru/Pilihan"),
+    CHARGING("Pengisian Daya", "Menyala saat HP sedang diisi daya atau penuh"),
+    LOW_BATTERY("Baterai Lemah (≤20%)", "Berkedip peringatan saat daya baterai rendah"),
+    NETWORK_SIGNAL("Sinyal & Wi-Fi Aktif", "Kedip indikator jaringan aktif ala BlackBerry klasik"),
+    DND_SILENT("Jangan Ganggu / Hening", "Menyala saat mode DND atau Hening aktif"),
+    ALWAYS_ON("Selalu Menyala", "Lampu indikator 2 selalu aktif saat layar menyala")
+}
+
+data class LedAppRule(
+    val packageName: String,
+    val colorHex: Long = LedColorPreset.BBM_GREEN.hex
+)
+
+data class LedLampConfig(
+    val enabled: Boolean = true,
+    val colorHex: Long = LedColorPreset.BB_RED.hex,
+    val pattern: LedBlinkPattern = LedBlinkPattern.CLASSIC_BB,
+    val blinkIntervalMs: Int = 1800, // 400 .. 4500 ms
+    val durationSeconds: Int = 0,    // 0 = Terus sampai dibuka/selesai, atau 5..900 detik
+    val sizeDp: Float = 10f,         // 6 .. 18 dp
+    val glowIntensity: Float = 0.88f // 0.2 .. 1.0
+)
+
+data class BlackBerryLedConfig(
+    val masterEnabled: Boolean = true,
+    val placement: LedPlacement = LedPlacement.TOP_RIGHT_PAIR,
+    val topOffsetDp: Float = 14f,
+    val horizontalOffsetDp: Float = 16f,
+    val spacingDp: Float = 10f,
+    val showOnLockScreen: Boolean = true,
+    val showOverOtherApps: Boolean = true,
+    // LED 1: Notifikasi Aplikasi Tertentu
+    val appLed: LedLampConfig = LedLampConfig(
+        enabled = true,
+        colorHex = LedColorPreset.BB_RED.hex,
+        pattern = LedBlinkPattern.CLASSIC_BB,
+        blinkIntervalMs = 1700,
+        durationSeconds = 0,
+        sizeDp = 10f,
+        glowIntensity = 0.90f
+    ),
+    val appLedAllAppsFallback: Boolean = true,
+    val appRules: List<LedAppRule> = emptyList(),
+    // LED 2: Indikator Sistem HP
+    val indicatorLed: LedLampConfig = LedLampConfig(
+        enabled = true,
+        colorHex = LedColorPreset.BBM_GREEN.hex,
+        pattern = LedBlinkPattern.BREATHING,
+        blinkIntervalMs = 2400,
+        durationSeconds = 0,
+        sizeDp = 9.5f,
+        glowIntensity = 0.84f
+    ),
+    val indicatorTrigger: LedIndicatorTrigger = LedIndicatorTrigger.SMART_AUTO,
+    val indicatorUseAutoStatusColor: Boolean = true
+)
+
 enum class LockClockStyle(val label: String, val subtitle: String) {
     ADAPTIVE_LIQUID("Adaptive Clock", "Otomatis menyesuaikan ukuran & ketebalan sesuai ruang & notifikasi"),
     IOS_DEPTH("Liquid Depth Pro", "Angka besar berkilau kaca ala iPhone 18 Pro Max"),
@@ -511,6 +598,9 @@ data class LauncherConfig(
 
     // 5. Dynamic Island (iPhone 18 Pro Max Dynamic Expanding/Collapsing)
     val dynamicIsland: DynamicIslandConfig = DynamicIslandConfig(),
+
+    // 5b. Dual BlackBerry LED Notification & System Indicator Lamps
+    val ledConfig: BlackBerryLedConfig = BlackBerryLedConfig(),
 
     // 6. Status Indicators (Hide native status bar to eliminate overlap)
     val hideSystemStatusBar: Boolean = true,

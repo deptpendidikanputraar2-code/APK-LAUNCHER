@@ -29,6 +29,7 @@ import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.system.NotificationHub
 import com.example.launcher.system.SystemSyncChecker
 import com.example.launcher.system.VitroEdgeControlManager
+import com.example.launcher.ui.components.BlackBerryDualLedOverlay
 import com.example.launcher.ui.components.VitroDynamicIsland
 import com.example.launcher.ui.screens.LockScreenOverlay
 import com.example.launcher.viewmodel.LauncherUiOverlays
@@ -193,6 +194,22 @@ class VitroLockScreenActivity : ComponentActivity() {
                             },
                             onDismissNotification = { key -> NotificationHub.dismissNotification(key) },
                             modifier = Modifier.align(Alignment.TopCenter)
+                        )
+                    }
+
+                    if (config.ledConfig.masterEnabled && config.ledConfig.showOnLockScreen) {
+                        BlackBerryDualLedOverlay(
+                            ledConfig = config.ledConfig,
+                            islandConfig = config.dynamicIsland,
+                            telemetry = telemetry,
+                            notifications = notifications,
+                            isLockScreen = true,
+                            onTapAppLedNotification = { notif ->
+                                NotificationHub.openNotification(this@VitroLockScreenActivity, notif)
+                                finish()
+                                @Suppress("DEPRECATION")
+                                overridePendingTransition(0, 0)
+                            }
                         )
                     }
                 }
