@@ -46,6 +46,8 @@ class SystemMonitor(private val context: Context) {
     private val dateFormat = SimpleDateFormat("EEEE, d MMM", indonesianLocale)
     private val monthFormat = SimpleDateFormat("MMMM yyyy", indonesianLocale)
     private val dayNumFormat = SimpleDateFormat("d", indonesianLocale)
+    private var cachedStoragePair: Pair<Float, Float> = Pair(54.0f, 128.0f)
+    private var lastStorageReadMs: Long = 0L
 
     private data class LocalControlOverrides(
         val brightness: Float,
@@ -84,6 +86,7 @@ class SystemMonitor(private val context: Context) {
                 addAction(Intent.ACTION_BATTERY_CHANGED)
                 addAction(Intent.ACTION_TIME_TICK)
                 addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_AIRPLANE_MODE_CHANGED)
                 addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
                 addAction(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED)
@@ -101,10 +104,13 @@ class SystemMonitor(private val context: Context) {
             }
             runCatching { cameraManager?.registerTorchCallback(torchCallback, null) }
 
+            val powerManager = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
             val tickerJob = launch {
                 while (true) {
-                    delay(2_500L)
-                    trySend(readSystemSnapshot())
+                    delay(30_000L)
+                    if (powerManager?.isInteractive != false) {
+                        trySend(readSystemSnapshot())
+                    }
                 }
             }
 
@@ -200,12 +206,17 @@ class SystemMonitor(private val context: Context) {
             Pair((total - avail).coerceAtLeast(0.5f), total.coerceAtLeast(2f))
         }.getOrDefault(Pair(3.2f, 8.0f))
 
-        val (storageUsed, storageTotal) = runCatching {
-            val stat = StatFs(Environment.getDataDirectory().path)
-            val total = stat.totalBytes.toFloat() / (1024f * 1024f * 1024f)
-            val avail = stat.availableBytes.toFloat() / (1024f * 1024f * 1024f)
-            Pair((total - avail).coerceAtLeast(1f), total.coerceAtLeast(16f))
-        }.getOrDefault(Pair(54.0f, 128.0f))
+        val nowElapsed = SystemClock.elapsedRealtime()
+        if (nowElapsed - lastStorageReadMs > 60_000L || lastStorageReadMs == 0L) {
+            cachedStoragePair = runCatching {
+                val stat = StatFs(Environment.getDataDirectory().path)
+                val total = stat.totalBytes.toFloat() / (1024f * 1024f * 1024f)
+                val avail = stat.availableBytes.toFloat() / (1024f * 1024f * 1024f)
+                Pair((total - avail).coerceAtLeast(1f), total.coerceAtLeast(16f))
+            }.getOrDefault(cachedStoragePair)
+            lastStorageReadMs = nowElapsed
+        }
+        val (storageUsed, storageTotal) = cachedStoragePair
 
         return DeviceTelemetry(
             timeText = timeFormat.format(now),

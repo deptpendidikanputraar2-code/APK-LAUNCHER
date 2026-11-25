@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -234,9 +235,10 @@ fun UniversalSearchOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xE8040814))
+                .background(Color(0xF5040814))
                 .then(safeTop)
                 .navigationBarsPadding()
+                .imePadding()
                 .testTag("universal_search_overlay"),
             contentAlignment = Alignment.TopCenter
         ) {
@@ -247,28 +249,13 @@ fun UniversalSearchOverlay(
                     .padding(horizontal = 18.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    VitroCustomizableSearchBar(
-                        searchConfig = config.searchBar,
-                        query = query,
-                        onQueryChange = { query = it },
-                        placeholder = "Cari aplikasi, widget kaca, menu Vitro...",
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.12f))
-                    ) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Tutup", tint = VitroTextPrimary)
-                    }
-                }
+                Text(
+                    text = "Pencarian Cepat Vitro",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = VitroTextPrimary,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
 
                 LazyColumn(
                     modifier = Modifier.weight(1f),
@@ -413,6 +400,34 @@ fun UniversalSearchOverlay(
                                 }
                             }
                         }
+                    }
+                }
+
+                // Bottom-anchored ergonomic Search Bar + Close Button for effortless thumb reach
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    VitroCustomizableSearchBar(
+                        searchConfig = config.searchBar,
+                        query = query,
+                        onQueryChange = { query = it },
+                        placeholder = "Cari aplikasi, widget kaca, menu Vitro...",
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("universal_search_bottom_input")
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.14f))
+                    ) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Tutup", tint = VitroTextPrimary)
                     }
                 }
             }

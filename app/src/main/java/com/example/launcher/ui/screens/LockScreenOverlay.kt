@@ -3,6 +3,8 @@ package com.example.launcher.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -70,7 +72,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -80,6 +87,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.launcher.model.DeviceTelemetry
@@ -91,6 +99,7 @@ import com.example.launcher.model.LockClockColor
 import com.example.launcher.model.LockClockStyle
 import com.example.launcher.model.LockSecurityMode
 import com.example.launcher.model.NowPlayingInfo
+import com.example.launcher.model.StatusIndicatorPosition
 import com.example.launcher.model.WidgetType
 import com.example.launcher.ui.components.AdaptiveLockClockHero
 import com.example.launcher.ui.components.LockScreenDiyControlSheet
@@ -152,8 +161,12 @@ fun LockScreenOverlay(
             pendingNotificationToOpen = afterUnlockNotif
             showPasscodeChallenge = true
         } else {
-            onUnlock()
-            if (afterUnlockNotif != null) onOpenNotification(afterUnlockNotif)
+            if (afterUnlockNotif != null) {
+                // Open notification FIRST before unlocking/finishing Lock Screen Activity
+                onOpenNotification(afterUnlockNotif)
+            } else {
+                onUnlock()
+            }
         }
     }
 
@@ -177,7 +190,61 @@ fun LockScreenOverlay(
             initialPage = 0,
             pageCount = { config.lockPageCount.coerceIn(1, 4) }
         )
-        var swipeAccum by remember { mutableFloatStateOf(0f) }
+        val scope = rememberCoroutineScope()
+        val density = LocalDensity.current
+        val unlockThresholdPx = with(density) { 108.dp.toPx() }
+        val unlockDragOffsetY = remember { Animatable(0f) }
+
+        fun finishSwipeUpGesture(flingVelocityY: Float = 0f) {
+            scope.launch {
+                val shouldUnlock = unlockDragOffsetY.value < -unlockThresholdPx || flingVelocityY < -950f
+                if (shouldUnlock) {
+                    if (!requiresPasscode) {
+                        unlockDragOffsetY.animateTo(-unlockThresholdPx * 3.5f, tween(160))
+                        unlockDragOffsetY.snapTo(0f)
+                        requestUnlockOrChallenge()
+                    } else {
+                        unlockDragOffsetY.animateTo(
+                            0f,
+                            spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 460f)
+                        )
+                        requestUnlockOrChallenge()
+                    }
+                } else {
+                    unlockDragOffsetY.animateTo(
+                        0f,
+                        spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 460f)
+                    )
+                }
+            }
+        }
+
+        val swipeUpNestedScroll = remember(showPasscodeChallenge, isLockDiyMode, requiresPasscode) {
+            object : NestedScrollConnection {
+                override fun onPostScroll(
+                    consumed: Offset,
+                    available: Offset,
+                    source: NestedScrollSource
+                ): Offset {
+                    if (showPasscodeChallenge || isLockDiyMode) return Offset.Zero
+                    // When user overscrolls upward at the bottom of the lock screen list, lift the lock screen like iPhone
+                    if (available.y < 0f || unlockDragOffsetY.value < 0f) {
+                        val next = (unlockDragOffsetY.value + available.y).coerceIn(-unlockThresholdPx * 2.4f, 0f)
+                        scope.launch { unlockDragOffsetY.snapTo(next) }
+                        return Offset(0f, available.y)
+                    }
+                    return Offset.Zero
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    if (unlockDragOffsetY.value < -12f) {
+                        finishSwipeUpGesture(available.y)
+                        return available
+                    }
+                    return Velocity.Zero
+                }
+            }
+        }
 
         val topSafe = if (config.hideSystemStatusBar) {
             Modifier.displayCutoutPadding().padding(top = 6.dp)
@@ -188,72 +255,76 @@ fun LockScreenOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(showPasscodeChallenge, isLockDiyMode) {
-                    if (!showPasscodeChallenge && !isLockDiyMode) {
-                        detectVerticalDragGestures(
-                            onDragEnd = {
-                                if (swipeAccum < -110f) requestUnlockOrChallenge()
-                                swipeAccum = 0f
-                            },
-                            onDragCancel = { swipeAccum = 0f },
-                            onVerticalDrag = { _, dragAmount ->
-                                if (dragAmount < 0) swipeAccum += dragAmount
-                            }
-                        )
-                    }
-                }
                 .testTag("lock_screen_overlay")
         ) {
-            VitroWallpaperBackdrop(
-                wallpaperConfig = config.effectiveLockWallpaper(),
-                glowIntensity = config.ambientGlowIntensity
-            )
-
-            Column(
+            // Interactive iPhone-style sliding Lock Screen surface
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(topSafe)
-                    .navigationBarsPadding(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (config.dynamicIsland.enabled && config.dynamicIsland.showOnLockScreen) {
-                    Spacer(modifier = Modifier.height((config.dynamicIsland.heightDp + config.dynamicIsland.topOffsetDp + 4f).dp))
-                }
-
-                // Top status row + subtle Lock DIY trigger button
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    TopStatusIndicatorArea(
-                        config = config,
-                        telemetry = telemetry,
-                        onOpenQuickPanel = {},
-                        onTriggerPopup = onTriggerLockPopup
-                    )
-                    IconButton(
-                        onClick = { isLockDiyMode = !isLockDiyMode },
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 10.dp)
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .background(if (isLockDiyMode) VitroCyanAccent else Color.White.copy(alpha = 0.14f))
-                            .testTag("lock_diy_toggle_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Edit,
-                            contentDescription = "Mode DIY Layar Kunci",
-                            tint = if (isLockDiyMode) Color(0xFF040814) else VitroTextPrimary,
-                            modifier = Modifier.size(16.dp)
-                        )
+                    .graphicsLayer {
+                        val y = unlockDragOffsetY.value
+                        translationY = y
+                        alpha = (1f + y / (unlockThresholdPx * 5.2f)).coerceIn(0.32f, 1f)
                     }
-                }
+            ) {
+                VitroWallpaperBackdrop(
+                    wallpaperConfig = config.effectiveLockWallpaper(),
+                    glowIntensity = config.ambientGlowIntensity
+                )
 
-                // Multi-page Lock Screen Pager
-                HorizontalPager(
-                    state = lockPagerState,
+                Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) { page ->
+                        .fillMaxSize()
+                        .then(topSafe)
+                        .navigationBarsPadding(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (config.dynamicIsland.enabled && config.dynamicIsland.showOnLockScreen) {
+                        Spacer(modifier = Modifier.height((config.dynamicIsland.heightDp + config.dynamicIsland.topOffsetDp + 4f).dp))
+                    }
+
+                    // Top status row + subtle Lock DIY trigger button (avoid duplicate pill right under Dynamic Island)
+                    val showLockStatusArea = !(config.dynamicIsland.enabled &&
+                        config.dynamicIsland.showOnLockScreen &&
+                        config.statusPosition == StatusIndicatorPosition.DYNAMIC_PILL)
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (showLockStatusArea) {
+                            TopStatusIndicatorArea(
+                                config = config,
+                                telemetry = telemetry,
+                                onOpenQuickPanel = {},
+                                onTriggerPopup = onTriggerLockPopup
+                            )
+                        } else {
+                            Spacer(modifier = Modifier.height(34.dp))
+                        }
+                        IconButton(
+                            onClick = { isLockDiyMode = !isLockDiyMode },
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 10.dp)
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(if (isLockDiyMode) VitroCyanAccent else Color.White.copy(alpha = 0.14f))
+                                .testTag("lock_diy_toggle_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = "Mode DIY Layar Kunci",
+                                tint = if (isLockDiyMode) Color(0xFF040814) else VitroTextPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+
+                    // Multi-page Lock Screen Pager with overscroll-up unlock support
+                    HorizontalPager(
+                        state = lockPagerState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .nestedScroll(swipeUpNestedScroll)
+                    ) { page ->
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -359,96 +430,122 @@ fun LockScreenOverlay(
                     }
                 }
 
-                // Bottom Area: either Lock DIY Editor Sheet OR Unlock Controls
-                if (isLockDiyMode) {
-                    LockScreenDiyControlSheet(
-                        config = config,
-                        onUpdateClockStyle = onUpdateLockClockStyle,
-                        onUpdateClockColor = onUpdateLockClockColor,
-                        onUpdateClockScale = { s -> onUpdateLockClockLayout(s, config.lockClockVerticalOffsetDp) },
-                        onUpdateClockWeight = onUpdateLockClockWeight,
-                        onAddLockWidget = onAddLockWidget,
-                        onDone = { isLockDiyMode = false }
-                    )
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp, vertical = 14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
+                    // Bottom Area: either Lock DIY Editor Sheet OR iPhone-Style Swipe-Up Unlock Bar
+                    if (isLockDiyMode) {
+                        LockScreenDiyControlSheet(
+                            config = config,
+                            onUpdateClockStyle = onUpdateLockClockStyle,
+                            onUpdateClockColor = onUpdateLockClockColor,
+                            onUpdateClockScale = { s -> onUpdateLockClockLayout(s, config.lockClockVerticalOffsetDp) },
+                            onUpdateClockWeight = onUpdateLockClockWeight,
+                            onAddLockWidget = onAddLockWidget,
+                            onDone = { isLockDiyMode = false }
+                        )
+                    } else {
+                        Column(
                             modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (telemetry.isFlashlightOn) VitroAmber.copy(alpha = 0.85f)
-                                    else Color.White.copy(alpha = 0.16f)
-                                )
-                                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                .clickable(onClick = onToggleFlashlight),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.FlashlightOn,
-                                contentDescription = "Senter",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        VitroGlassContainer(
-                            cornerRadius = 26.dp,
-                            glassOpacity = 0.24f,
-                            modifier = Modifier
-                                .bouncyClickable { requestUnlockOrChallenge() }
-                                .testTag("unlock_lock_screen_button")
+                                .fillMaxWidth()
+                                .pointerInput(showPasscodeChallenge, isLockDiyMode, requiresPasscode) {
+                                    detectVerticalDragGestures(
+                                        onDragEnd = { finishSwipeUpGesture() },
+                                        onDragCancel = { finishSwipeUpGesture() },
+                                        onVerticalDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val next = (unlockDragOffsetY.value + dragAmount)
+                                                .coerceIn(-unlockThresholdPx * 2.8f, 0f)
+                                            scope.launch { unlockDragOffsetY.snapTo(next) }
+                                        }
+                                    )
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 28.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = if (requiresPasscode) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                                    contentDescription = "Buka Layar",
-                                    tint = VitroCyanAccent,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Text(
-                                    text = if (requiresPasscode) "Masukkan Sandi" else "Buka Layar",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = VitroTextPrimary,
-                                    fontWeight = FontWeight.SemiBold
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (telemetry.isFlashlightOn) VitroAmber.copy(alpha = 0.85f)
+                                            else Color.White.copy(alpha = 0.16f)
+                                        )
+                                        .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                                        .clickable(onClick = onToggleFlashlight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.FlashlightOn,
+                                        contentDescription = "Senter",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(50.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.16f))
+                                        .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                                        .clickable(onClick = onTriggerLockPopup),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.NotificationsActive,
+                                        contentDescription = "Notifikasi",
+                                        tint = VitroCyanAccent,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+
+                            // Dedicated iPhone Home Indicator Swipe-Up Zone
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp, bottom = 10.dp)
+                                    .testTag("iphone_swipe_up_unlock_zone"),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (requiresPasscode) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                                        contentDescription = null,
+                                        tint = Color.White.copy(alpha = 0.78f),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = if (requiresPasscode) {
+                                            "Geser ke atas untuk memasukkan sandi"
+                                        } else {
+                                            "Geser ke atas untuk membuka"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White.copy(alpha = 0.84f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+
+                                // Iconic iPhone glowing home pill indicator
+                                Box(
+                                    modifier = Modifier
+                                        .width(138.dp)
+                                        .height(5.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.White.copy(alpha = 0.88f))
                                 )
                             }
                         }
-
-                        Box(
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.16f))
-                                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
-                                .clickable(onClick = onTriggerLockPopup),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.NotificationsActive,
-                                contentDescription = "Notifikasi",
-                                tint = VitroCyanAccent,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
                     }
-
-                    Text(
-                        text = "Geser ke atas untuk membuka • Tahan lama jam untuk mode DIY",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VitroTextSecondary,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
                 }
             }
 
@@ -466,8 +563,11 @@ fun LockScreenOverlay(
                             val targetNotif = pendingNotificationToOpen
                             showPasscodeChallenge = false
                             pendingNotificationToOpen = null
-                            onUnlock()
-                            if (targetNotif != null) onOpenNotification(targetNotif)
+                            if (targetNotif != null) {
+                                onOpenNotification(targetNotif)
+                            } else {
+                                onUnlock()
+                            }
                             true
                         } else {
                             false

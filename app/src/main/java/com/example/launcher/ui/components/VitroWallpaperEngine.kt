@@ -6,6 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Build
+import android.os.PowerManager
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -42,6 +43,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.launcher.model.WallpaperConfig
 import com.example.launcher.model.WallpaperGlassStyle
@@ -78,16 +82,40 @@ fun VitroAdvancedWallpaperBackdrop(
     isMiniPreview: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+    var isPowerSave by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        isPowerSave = pm?.isPowerSaveMode == true
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    isResumed = true
+                    isPowerSave = pm?.isPowerSaveMode == true
+                }
+                Lifecycle.Event.ON_PAUSE -> isResumed = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val speed = wallpaperConfig.liveSpeed.coerceIn(0.3f, 2.0f)
     val cycleMs = (16000f / speed).toInt().coerceIn(5000, 32000)
 
-    val needsPhase = wallpaperConfig.preset.isLive ||
+    val needsPhase = (wallpaperConfig.preset.isLive ||
         wallpaperConfig.glassStyle == WallpaperGlassStyle.LIQUID_SHIMMER ||
-        wallpaperConfig.particleOverlay != WallpaperParticleOverlay.NONE
+        wallpaperConfig.particleOverlay != WallpaperParticleOverlay.NONE) &&
+        isResumed &&
+        !isPowerSave
 
-    val infinite = rememberInfiniteTransition(label = "vitro_wp_engine")
-    val livePhase by if (needsPhase) {
-        infinite.animateFloat(
+    val livePhase: Float = if (needsPhase) {
+        val infinite = rememberInfiniteTransition(label = "vitro_wp_engine")
+        val p by infinite.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -96,13 +124,14 @@ fun VitroAdvancedWallpaperBackdrop(
             ),
             label = "wp_phase"
         )
+        p
     } else {
-        remember { mutableFloatStateOf(0f) }
+        0.18f
     }
 
     val (tiltX, tiltY) = rememberGyroParallaxOffset(
-        enabled = enableSensorParallax && wallpaperConfig.parallaxEnabled && !isMiniPreview &&
-            wallpaperConfig.preset != WallpaperPreset.SYSTEM_LIVE
+        enabled = isResumed && !isPowerSave && enableSensorParallax && wallpaperConfig.parallaxEnabled &&
+            !isMiniPreview && wallpaperConfig.preset != WallpaperPreset.SYSTEM_LIVE
     )
 
     var customBitmap by remember(wallpaperConfig.customImagePath) { mutableStateOf<ImageBitmap?>(null) }
@@ -313,7 +342,7 @@ private fun rememberGyroParallaxOffset(enabled: Boolean): Pair<Float, Float> {
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
-        sensorManager.registerListener(listener, accel, SensorManager.SENSOR_DELAY_UI)
+        sensorManager.registerListener(listener, accel, SensorManager.SENSOR_DELAY_NORMAL)
         onDispose {
             sensorManager.unregisterListener(listener)
         }

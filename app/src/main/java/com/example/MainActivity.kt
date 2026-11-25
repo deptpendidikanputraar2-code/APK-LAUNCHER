@@ -34,6 +34,7 @@ import com.example.launcher.model.QuickModuleType
 import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.system.AvailableAndroidWidget
 import com.example.launcher.system.SystemSyncChecker
+import com.example.launcher.system.VitroEdgeControlManager
 import com.example.launcher.ui.components.QuickPanelOverlay
 import com.example.launcher.ui.components.UniversalSearchOverlay
 import com.example.launcher.ui.components.VitroDynamicIsland
@@ -178,8 +179,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        VitroEdgeControlManager.onVitroActivityResumed(this)
         launcherViewModel.refreshSyncStatus()
         applyStatusBarVisibility(hideStatusBarPref)
+    }
+
+    override fun onPause() {
+        VitroEdgeControlManager.onVitroActivityPaused(this)
+        super.onPause()
     }
 
     override fun onStop() {
@@ -353,7 +360,7 @@ private fun VitroLauncherRoot(
             onToggleMedia = viewModel::mediaPlayPause,
             onToggleFocusTimer = viewModel::toggleFocusTimer,
             onResetFocusTimer = viewModel::resetFocusTimer,
-            onOpenNotification = viewModel::openNotification,
+            onOpenNotification = { notif -> viewModel.openNotification(notif, context) },
             onDismissNotification = viewModel::dismissLiveNotification,
             onEnableNotificationAccess = { SystemSyncChecker.openNotificationListenerSettings(context) },
             onUpdateHomeWidgetLayout = viewModel::updateHomeWidgetLayout,
@@ -420,7 +427,7 @@ private fun VitroLauncherRoot(
             onToggleFlashlight = { viewModel.handleQuickModuleClick(QuickModuleType.FLASHLIGHT) },
             onToggleMedia = viewModel::mediaPlayPause,
             onTriggerLockPopup = { viewModel.triggerSamplePopup(isLockScreen = true) },
-            onOpenNotification = viewModel::openNotification,
+            onOpenNotification = { notif -> viewModel.openNotification(notif, context) },
             onDismissNotification = viewModel::dismissLiveNotification,
             onClearAllNotifications = viewModel::clearAllNotifications,
             onEnableNotificationAccess = { SystemSyncChecker.openNotificationListenerSettings(context) },
@@ -509,7 +516,7 @@ private fun VitroLauncherRoot(
                 onMediaPrev = viewModel::mediaPrevious,
                 onToggleFlashlight = { viewModel.handleQuickModuleClick(QuickModuleType.FLASHLIGHT) },
                 onOpenQuickPanel = viewModel::openQuickPanel,
-                onOpenNotification = viewModel::openNotification,
+                onOpenNotification = { notif -> viewModel.openNotification(notif, context) },
                 onDismissNotification = viewModel::dismissLiveNotification,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
@@ -525,7 +532,7 @@ private fun VitroLauncherRoot(
             onLaunchApp = viewModel::launchApp,
             onToggleDockPin = viewModel::toggleDockPin,
             onOpenAppInfo = viewModel::openAppInfo,
-            onOpenLiveNotification = viewModel::openNotification,
+            onOpenLiveNotification = { notif -> viewModel.openNotification(notif, context) },
             onDismissLiveNotification = viewModel::dismissLiveNotification
         )
     }

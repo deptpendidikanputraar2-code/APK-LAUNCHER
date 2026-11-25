@@ -91,12 +91,18 @@ fun VitroPopupOverlay(
         Modifier.statusBarsPadding()
     }
 
+    val lockBottomClearance = if (popup?.isLockScreenContext == true && alignment == Alignment.BottomCenter) {
+        114.dp
+    } else {
+        14.dp
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .then(safeTop)
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = lockBottomClearance),
         contentAlignment = alignment
     ) {
         AnimatedVisibility(

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -104,9 +105,10 @@ fun AppDrawerOverlay(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xDD060B18))
+                .background(Color(0xF5050914))
                 .then(safeTop)
                 .navigationBarsPadding()
+                .imePadding()
                 .testTag("app_drawer_overlay")
         ) {
             Column(
@@ -176,16 +178,6 @@ fun AppDrawerOverlay(
                     }
                 }
 
-                com.example.launcher.ui.components.VitroCustomizableSearchBar(
-                    searchConfig = config.searchBar,
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    placeholder = stringResource(R.string.search_apps_hint),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("drawer_search_input")
-                )
-
                 if (pinMode) {
                     Text(
                         text = "Ketuk aplikasi mana saja untuk menyematkan atau melepasnya dari Dock Bar.",
@@ -196,7 +188,7 @@ fun AppDrawerOverlay(
 
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(config.homeGridColumns.coerceIn(3, 5)),
-                    contentPadding = PaddingValues(bottom = 24.dp),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     modifier = Modifier.weight(1f)
@@ -267,6 +259,18 @@ fun AppDrawerOverlay(
                         }
                     }
                 }
+
+                // Bottom-anchored ergonomic Search Bar for effortless thumb reach
+                com.example.launcher.ui.components.VitroCustomizableSearchBar(
+                    searchConfig = config.searchBar,
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholder = stringResource(R.string.search_apps_hint),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp, bottom = 4.dp)
+                        .testTag("drawer_search_input")
+                )
             }
         }
     }

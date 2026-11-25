@@ -55,6 +55,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.NowPlayingInfo
 import com.example.ui.theme.VitroAmber
@@ -78,11 +81,14 @@ import kotlin.math.sin
  */
 @Composable
 fun AnalogGlassClockWidget(telemetry: DeviceTelemetry) {
+    val lifecycleOwner = LocalLifecycleOwner.current
     var nowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            nowMillis = System.currentTimeMillis()
-            delay(1_000L)
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                nowMillis = System.currentTimeMillis()
+                delay(1_000L)
+            }
         }
     }
     val cal = remember(nowMillis) { Calendar.getInstance().apply { timeInMillis = nowMillis } }
@@ -208,11 +214,14 @@ fun AnalogGlassClockWidget(telemetry: DeviceTelemetry) {
  */
 @Composable
 fun WorldClockGlassWidget() {
+    val lifecycleOwner = LocalLifecycleOwner.current
     var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            tick = System.currentTimeMillis()
-            delay(15_000L)
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                tick = System.currentTimeMillis()
+                delay(15_000L)
+            }
         }
     }
     val cities = remember(tick) {

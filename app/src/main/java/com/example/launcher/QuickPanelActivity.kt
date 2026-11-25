@@ -28,6 +28,7 @@ import com.example.launcher.model.QuickPanelOrientation
 import com.example.launcher.system.NotificationHub
 import com.example.launcher.system.SystemSyncChecker
 import com.example.launcher.system.VitroAccessibilityService
+import com.example.launcher.system.VitroEdgeControlManager
 import com.example.launcher.ui.components.QuickPanelOverlay
 import com.example.launcher.viewmodel.LauncherUiOverlays
 import com.example.ui.theme.VitroLauncherTheme
@@ -181,6 +182,17 @@ class QuickPanelActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        VitroEdgeControlManager.onVitroActivityResumed(this, isQuickPanel = true)
+        applyStatusBarVisibility(hideStatusBarPref)
+    }
+
+    override fun onPause() {
+        VitroEdgeControlManager.onVitroActivityPaused(this, isQuickPanel = true)
+        super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

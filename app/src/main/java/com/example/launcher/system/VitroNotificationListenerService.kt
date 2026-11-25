@@ -1,5 +1,8 @@
 package com.example.launcher.system
 
+import android.app.Activity
+import android.app.ActivityOptions
+import android.app.KeyguardManager
 import android.app.Notification
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -9,6 +12,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
+import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.compose.ui.graphics.ImageBitmap
@@ -78,22 +83,78 @@ object NotificationHub {
     }
 
     fun openNotification(context: Context, notification: LiveNotification): Boolean {
-        val pending = notification.contentIntent
-        if (pending != null) {
-            val sent = runCatching {
-                pending.send()
+        // Dismiss Android system keyguard cleanly if opening from a Lock Screen Activity
+        if (context is Activity && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            runCatching {
+                val km = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                if (km?.isKeyguardLocked == true) {
+                    km.requestDismissKeyguard(context, null)
+                }
+            }
+        }
+
+        // Always look up the freshest PendingIntent in case the notification updated since rendering
+        val freshestPending = _notifications.value
+            .firstOrNull { it.key == notification.key }
+            ?.contentIntent
+            ?: notification.contentIntent
+
+        if (freshestPending != null) {
+            // Android 14+ (API 34-36) strictly requires explicit BAL ActivityOptions on PendingIntent.send()
+            val sentWithOptions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                runCatching {
+                    val opts = ActivityOptions.makeBasic().apply {
+                        if (Build.VERSION.SDK_INT >= 36) {
+                            setPendingIntentBackgroundActivityStartMode(
+                                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            setPendingIntentBackgroundActivityStartMode(
+                                ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                            )
+                        }
+                    }.toBundle()
+                    freshestPending.send(context, 0, null, null, null, null, opts)
+                    true
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+            if (sentWithOptions) return true
+
+            val sentLegacy = runCatching {
+                freshestPending.send()
                 true
             }.getOrDefault(false)
-            if (sent) return true
+            if (sentLegacy) return true
         }
-        return runCatching {
+
+        // Fallback 1: Launch target app directly by packageName
+        val launchedApp = runCatching {
             val launch = context.packageManager.getLaunchIntentForPackage(notification.packageName)
             if (launch != null) {
-                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                )
                 context.startActivity(launch)
                 true
             } else false
         }.getOrDefault(false)
+        if (launchedApp) return true
+
+        // Fallback 2: For Android System / SystemUI notifications that have no launcher icon
+        if (notification.packageName == "android" || notification.packageName.contains("systemui")) {
+            return runCatching {
+                context.startActivity(
+                    Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                true
+            }.getOrDefault(false)
+        }
+        return false
     }
 
     fun requestRefresh() {
@@ -109,10 +170,18 @@ class VitroNotificationListenerService : NotificationListenerService() {
     private var latestConfig: LauncherConfig = LauncherConfig()
     private var screenReceiverRegistered = false
 
-    private val screenWakeReceiver = object : BroadcastReceiver() {
+    private val screenPowerReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_SCREEN_ON && latestConfig.replaceSystemLockScreen) {
-                VitroEdgeControlManager.launchVitroLockScreen(applicationContext)
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON -> {
+                    VitroEdgeControlManager.onScreenPowerChanged(applicationContext, interactive = true)
+                    if (latestConfig.replaceSystemLockScreen) {
+                        VitroEdgeControlManager.launchVitroLockScreen(applicationContext)
+                    }
+                }
+                Intent.ACTION_SCREEN_OFF -> {
+                    VitroEdgeControlManager.onScreenPowerChanged(applicationContext, interactive = false)
+                }
             }
         }
     }
@@ -123,27 +192,25 @@ class VitroNotificationListenerService : NotificationListenerService() {
         serviceScope.launch {
             repo.configFlow.collect { cfg ->
                 latestConfig = cfg
-                VitroEdgeControlManager.syncEdgeTrigger(
-                    context = applicationContext,
-                    enabled = cfg.replaceSystemControlPanel,
-                    zone = cfg.edgeTriggerZone
-                )
+                VitroEdgeControlManager.syncSystemWideUi(applicationContext, cfg)
             }
         }
         runCatching {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
             }
-            registerReceiver(screenWakeReceiver, filter)
+            registerReceiver(screenPowerReceiver, filter)
             screenReceiverRegistered = true
         }
     }
 
     override fun onDestroy() {
         if (screenReceiverRegistered) {
-            runCatching { unregisterReceiver(screenWakeReceiver) }
+            runCatching { unregisterReceiver(screenPowerReceiver) }
             screenReceiverRegistered = false
         }
+        VitroEdgeControlManager.onScreenPowerChanged(applicationContext, interactive = false)
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -173,7 +240,8 @@ class VitroNotificationListenerService : NotificationListenerService() {
                     soundId = cfg.activeNotifSoundId,
                     customSounds = cfg.customNotifSounds
                 )
-                if (cfg.showSystemWideDynamicIsland) {
+                // Show system-wide Dynamic Island heads-up over OTHER apps (when Vitro isn't already visible)
+                if (cfg.showSystemWideDynamicIsland && !VitroEdgeControlManager.isVitroInForeground()) {
                     VitroEdgeControlManager.showSystemWideNotifIsland(applicationContext, converted)
                 }
             }
@@ -206,6 +274,7 @@ class VitroNotificationListenerService : NotificationListenerService() {
 
         val visibleNotifications = converted.filterNot { it.isMedia && it.isOngoing }
         NotificationHub.updateNotifications(visibleNotifications, nowPlaying)
+        VitroEdgeControlManager.refreshSystemIslandContent(applicationContext)
     }
 
     private fun convertSbn(sbn: StatusBarNotification): LiveNotification? {

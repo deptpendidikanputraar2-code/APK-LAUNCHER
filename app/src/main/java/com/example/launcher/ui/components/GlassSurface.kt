@@ -23,9 +23,14 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import android.content.Context
+import android.os.PowerManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
@@ -35,10 +40,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.launcher.model.WallpaperPreset
 import com.example.ui.theme.VitroCoral
@@ -88,25 +97,56 @@ fun VitroAmbientGlowLayer(
     modifier: Modifier = Modifier
 ) {
     val clamped = intensity.coerceIn(0f, 1f)
-    val infiniteTransition = rememberInfiniteTransition(label = "ambient_glow_drift")
-    val driftProgress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 9000, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow_orb_drift"
-    )
-    val pulse by infiniteTransition.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 6400, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow_orb_pulse"
-    )
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+    var isPowerSave by remember { mutableStateOf(false) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        isPowerSave = pm?.isPowerSaveMode == true
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> {
+                    isResumed = true
+                    isPowerSave = pm?.isPowerSaveMode == true
+                }
+                Lifecycle.Event.ON_PAUSE -> isResumed = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val driftProgress: Float
+    val pulse: Float
+    if (isResumed && !isPowerSave && clamped > 0.02f) {
+        val infiniteTransition = rememberInfiniteTransition(label = "ambient_glow_drift")
+        val d by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 12000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "glow_orb_drift"
+        )
+        val p by infiniteTransition.animateFloat(
+            initialValue = 0.90f,
+            targetValue = 1.10f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 8400, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "glow_orb_pulse"
+        )
+        driftProgress = d
+        pulse = p
+    } else {
+        driftProgress = 0.4f
+        pulse = 1.0f
+    }
 
     Canvas(modifier = modifier.fillMaxSize()) {
         val w = size.width

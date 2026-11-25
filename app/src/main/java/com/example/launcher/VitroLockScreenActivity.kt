@@ -28,6 +28,7 @@ import com.example.launcher.model.LauncherConfig
 import com.example.launcher.model.WallpaperPreset
 import com.example.launcher.system.NotificationHub
 import com.example.launcher.system.SystemSyncChecker
+import com.example.launcher.system.VitroEdgeControlManager
 import com.example.launcher.ui.components.VitroDynamicIsland
 import com.example.launcher.ui.screens.LockScreenOverlay
 import com.example.launcher.viewmodel.LauncherUiOverlays
@@ -120,8 +121,10 @@ class VitroLockScreenActivity : ComponentActivity() {
                         onToggleMedia = { systemMonitor.sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) },
                         onTriggerLockPopup = {},
                         onOpenNotification = { notif ->
-                            NotificationHub.openNotification(applicationContext, notif)
+                            NotificationHub.openNotification(this@VitroLockScreenActivity, notif)
                             finish()
+                            @Suppress("DEPRECATION")
+                            overridePendingTransition(0, 0)
                         },
                         onDismissNotification = { key -> NotificationHub.dismissNotification(key) },
                         onClearAllNotifications = { NotificationHub.clearAllDismissible() },
@@ -183,8 +186,10 @@ class VitroLockScreenActivity : ComponentActivity() {
                             onToggleFlashlight = { systemMonitor.toggleFlashlight() },
                             onOpenQuickPanel = {},
                             onOpenNotification = { notif ->
-                                NotificationHub.openNotification(applicationContext, notif)
+                                NotificationHub.openNotification(this@VitroLockScreenActivity, notif)
                                 finish()
+                                @Suppress("DEPRECATION")
+                                overridePendingTransition(0, 0)
                             },
                             onDismissNotification = { key -> NotificationHub.dismissNotification(key) },
                             modifier = Modifier.align(Alignment.TopCenter)
@@ -193,6 +198,17 @@ class VitroLockScreenActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        VitroEdgeControlManager.onVitroActivityResumed(this)
+        applyStatusBarVisibility(hideStatusBarPref)
+    }
+
+    override fun onPause() {
+        VitroEdgeControlManager.onVitroActivityPaused(this)
+        super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

@@ -84,7 +84,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     val telemetry: StateFlow<DeviceTelemetry> = systemMonitor.observeTelemetry().stateIn(
         scope = viewModelScope,
-        started = SharingStarted.Eagerly,
+        started = SharingStarted.WhileSubscribed(5_000L),
         initialValue = DeviceTelemetry()
     )
 
@@ -135,14 +135,10 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
         }
 
-        // Sync edge control panel trigger whenever config changes
+        // Sync system-wide Control Panel & Dynamic Island whenever config changes
         viewModelScope.launch {
             config.collect { cfg ->
-                VitroEdgeControlManager.syncEdgeTrigger(
-                    context = appContext,
-                    enabled = cfg.replaceSystemControlPanel,
-                    zone = cfg.edgeTriggerZone
-                )
+                VitroEdgeControlManager.syncSystemWideUi(appContext, cfg)
             }
         }
     }
@@ -155,12 +151,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun refreshSyncStatus() {
         _syncStatus.value = SystemSyncChecker.checkStatus(appContext)
         NotificationHub.requestRefresh()
-        val cfg = config.value
-        VitroEdgeControlManager.syncEdgeTrigger(
-            context = appContext,
-            enabled = cfg.replaceSystemControlPanel,
-            zone = cfg.edgeTriggerZone
-        )
+        VitroEdgeControlManager.syncSystemWideUi(appContext, config.value)
     }
 
     fun refreshInstalledApps() {
@@ -787,12 +778,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun openNotification(notif: LiveNotification) {
+    fun openNotification(notif: LiveNotification, callerContext: Context = appContext) {
         dismissPopup()
+        NotificationHub.openNotification(callerContext, notif)
         if (_overlays.value.isLockScreenActive && config.value.lockSecurityMode == LockSecurityMode.NONE) {
             unlockScreen()
         }
-        NotificationHub.openNotification(appContext, notif)
     }
 
     fun dismissLiveNotification(key: String) {

@@ -57,10 +57,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +73,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -259,19 +265,48 @@ fun VitroDynamicIsland(
     val animatedH by animateDpAsState(targetHeight, morphSpring, label = "di_h")
     val animatedR by animateDpAsState(targetRadius, morphSpring, label = "di_r")
 
-    val infinite = rememberInfiniteTransition(label = "di_aura")
-    val shimmerPhase by infinite.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Reverse),
-        label = "di_shimmer"
-    )
-    val glowPulse by infinite.animateFloat(
-        initialValue = 0.55f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "di_glow"
-    )
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isResumed = true
+                Lifecycle.Event.ON_PAUSE -> isResumed = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val shouldAnimateAura = isResumed &&
+        !telemetry.isPowerSaveMode &&
+        (visualState != IslandVisualState.COMPACT || hasMedia || telemetry.isCharging)
+
+    val shimmerPhase: Float
+    val glowPulse: Float
+    if (shouldAnimateAura) {
+        val infinite = rememberInfiniteTransition(label = "di_aura")
+        val s by infinite.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(2400, easing = LinearEasing), RepeatMode.Reverse),
+            label = "di_shimmer"
+        )
+        val g by infinite.animateFloat(
+            initialValue = 0.55f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(1500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "di_glow"
+        )
+        shimmerPhase = s
+        glowPulse = g
+    } else {
+        shimmerPhase = 0.45f
+        glowPulse = 0.84f
+    }
+
+    val currentOnOpenQuickPanel by rememberUpdatedState(onOpenQuickPanel)
 
     val style = islandConfig.style
     val rimAlpha = (islandConfig.borderGlow * glowPulse).coerceIn(0.15f, 0.96f)
@@ -302,6 +337,20 @@ fun VitroDynamicIsland(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val outerGestureModifier = if (
+            visualState == IslandVisualState.COMPACT ||
+            visualState == IslandVisualState.AUTO_SYSTEM_STATUS
+        ) {
+            Modifier.pointerInput(visualState) {
+                detectTapGestures(
+                    onTap = { visualState = IslandVisualState.EXPANDED_FULL },
+                    onLongPress = { currentOnOpenQuickPanel() }
+                )
+            }
+        } else {
+            Modifier
+        }
+
         Box(
             modifier = Modifier
                 .width(animatedW)
@@ -313,22 +362,7 @@ fun VitroDynamicIsland(
                     brush = liquidRimBrush,
                     shape = shape
                 )
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            visualState = when (visualState) {
-                                IslandVisualState.COMPACT -> IslandVisualState.EXPANDED_FULL
-                                IslandVisualState.AUTO_NOTIF -> {
-                                    latestNotif?.let(onOpenNotification)
-                                    IslandVisualState.COMPACT
-                                }
-                                IslandVisualState.AUTO_SYSTEM_STATUS -> IslandVisualState.EXPANDED_FULL
-                                IslandVisualState.EXPANDED_FULL -> IslandVisualState.COMPACT
-                            }
-                        },
-                        onLongPress = { onOpenQuickPanel() }
-                    )
-                }
+                .then(outerGestureModifier)
                 .testTag("vitro_dynamic_island")
         ) {
             // Top liquid glass specular sheen line (iPhone 18 Pro Max feel)
@@ -681,65 +715,72 @@ private fun AutoNotificationExpandContent(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        if (notification.appIcon != null) {
-            Image(
-                bitmap = notification.appIcon,
-                contentDescription = notification.appName,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(accentColor.copy(alpha = 0.25f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Rounded.NotificationsActive,
-                    contentDescription = null,
-                    tint = accentColor,
-                    modifier = Modifier.size(22.dp)
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp))
+                .clickable { onOpen(notification) }
+                .padding(horizontal = 4.dp, vertical = 4.dp)
+                .testTag("dynamic_island_auto_notif_click"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (notification.appIcon != null) {
+                Image(
+                    bitmap = notification.appIcon,
+                    contentDescription = notification.appName,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accentColor.copy(alpha = 0.25f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.NotificationsActive,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "${notification.appName} • Baru Saja",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accentColor,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = notification.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = VitroTextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = notification.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VitroTextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .clickable { onOpen(notification) }
-        ) {
-            Text(
-                text = "${notification.appName} • Baru Saja",
-                style = MaterialTheme.typography.labelSmall,
-                color = accentColor,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = notification.title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = VitroTextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = notification.text,
-                style = MaterialTheme.typography.bodySmall,
-                color = VitroTextSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
         IconButton(
             onClick = { onDismiss(notification.key) },
-            modifier = Modifier.size(32.dp)
+            modifier = Modifier.size(36.dp)
         ) {
             Icon(
                 Icons.Rounded.Close,
@@ -1001,7 +1042,20 @@ fun AuroraSpectrumVisualizer(
     barCount: Int = 5,
     maxHeightDp: Float = 15f
 ) {
-    val infinite = rememberInfiniteTransition(label = "spectrum")
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> isResumed = true
+                Lifecycle.Event.ON_PAUSE -> isResumed = false
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val barColors = listOf(
         Color(0xFF38BDF8),
         Color(0xFF818CF8),
@@ -1009,31 +1063,50 @@ fun AuroraSpectrumVisualizer(
         Color(0xFFF472B6),
         Color(0xFF34D399)
     )
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(2.2.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        for (i in 0 until barCount) {
-            val animHeight by infinite.animateFloat(
-                initialValue = 0.25f,
-                targetValue = 1.0f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(
-                        durationMillis = 360 + i * 110,
-                        easing = FastOutSlowInEasing
+
+    if (isPlaying && isResumed) {
+        val infinite = rememberInfiniteTransition(label = "spectrum")
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (i in 0 until barCount) {
+                val animHeight by infinite.animateFloat(
+                    initialValue = 0.25f,
+                    targetValue = 1.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = 360 + i * 110,
+                            easing = FastOutSlowInEasing
+                        ),
+                        repeatMode = RepeatMode.Reverse
                     ),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "bar_$i"
-            )
-            val h = if (isPlaying) (maxHeightDp * animHeight).coerceAtLeast(3.5f) else 4f
-            Box(
-                modifier = Modifier
-                    .width(2.8.dp)
-                    .height(h.dp)
-                    .clip(CircleShape)
-                    .background(barColors[i % barColors.size])
-            )
+                    label = "bar_$i"
+                )
+                val h = (maxHeightDp * animHeight).coerceAtLeast(3.5f)
+                Box(
+                    modifier = Modifier
+                        .width(2.8.dp)
+                        .height(h.dp)
+                        .clip(CircleShape)
+                        .background(barColors[i % barColors.size])
+                )
+            }
+        }
+    } else {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            for (i in 0 until barCount) {
+                Box(
+                    modifier = Modifier
+                        .width(2.8.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(barColors[i % barColors.size].copy(alpha = 0.7f))
+                )
+            }
         }
     }
 }

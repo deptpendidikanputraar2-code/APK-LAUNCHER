@@ -177,7 +177,7 @@ enum class SearchBarColorPreset(
 
 data class SearchBarConfig(
     val enabledOnHome: Boolean = true,
-    val position: SearchBarPosition = SearchBarPosition.TOP,
+    val position: SearchBarPosition = SearchBarPosition.ABOVE_DOCK,
     val shape: SearchBarShape = SearchBarShape.PILL,
     val colorPreset: SearchBarColorPreset = SearchBarColorPreset.FROSTED_GLASS,
     val opacity: Float = 0.24f,

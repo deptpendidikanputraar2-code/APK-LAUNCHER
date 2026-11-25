@@ -280,9 +280,11 @@ fun HomeScreen(
                 }
             }
 
-            if (config.statusPosition == StatusIndicatorPosition.TOP_STATUS_BAR ||
-                config.statusPosition == StatusIndicatorPosition.DYNAMIC_PILL
-            ) {
+            val showHomeTopStatus = (config.statusPosition == StatusIndicatorPosition.TOP_STATUS_BAR ||
+                config.statusPosition == StatusIndicatorPosition.DYNAMIC_PILL) &&
+                !(config.dynamicIsland.enabled && config.statusPosition == StatusIndicatorPosition.DYNAMIC_PILL)
+
+            if (showHomeTopStatus) {
                 TopStatusIndicatorArea(
                     config = config,
                     telemetry = telemetry,
