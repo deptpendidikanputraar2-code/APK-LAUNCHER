@@ -316,12 +316,25 @@ fun HomeScreen(
                 )
             }
 
-            // Middle main workspace — ALWAYS 100% full-width so wallpaper & pages never shrink even with Side Dock!
+            // Middle main workspace (Side Dock sits beside widgets so widgets scroll cleanly without overlap)
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
+                if (config.dockLayout == DockLayoutMode.LEFT_RAIL) {
+                    DiySideDockSlot(
+                        config = config,
+                        dockApps = dockApps,
+                        telemetry = telemetry,
+                        isDiyMode = isDiyMode,
+                        onLaunchApp = onLaunchApp,
+                        onLongPressApp = onLongPressApp,
+                        onOpenQuickPanel = onOpenQuickPanel,
+                        onUpdateSideDockOffset = onUpdateSideDockOffset
+                    )
+                }
+
                 // Multi-page home canvas with DIY draggable & resizable Glass + Android AppWidgets
                 Column(
                     modifier = Modifier
@@ -478,6 +491,19 @@ fun HomeScreen(
                         }
                     }
                 }
+
+                if (config.dockLayout == DockLayoutMode.RIGHT_RAIL) {
+                    DiySideDockSlot(
+                        config = config,
+                        dockApps = dockApps,
+                        telemetry = telemetry,
+                        isDiyMode = isDiyMode,
+                        onLaunchApp = onLaunchApp,
+                        onLongPressApp = onLongPressApp,
+                        onOpenQuickPanel = onOpenQuickPanel,
+                        onUpdateSideDockOffset = onUpdateSideDockOffset
+                    )
+                }
             }
 
             // Home Search Bar at ABOVE_DOCK position
@@ -519,76 +545,6 @@ fun HomeScreen(
 
             if (config.showGlassySidebar) {
                 Spacer(modifier = Modifier.height(50.dp))
-            }
-        }
-
-        // Floating Side Dock Bar (LEFT_RAIL / RIGHT_RAIL) — Wallpaper stays 100% FULL SCREEN,
-        // and user can align Top / Center / Bottom OR drag vertically anywhere in DIY Mode!
-        if (config.dockLayout == DockLayoutMode.LEFT_RAIL || config.dockLayout == DockLayoutMode.RIGHT_RAIL) {
-            val isLeft = config.dockLayout == DockLayoutMode.LEFT_RAIL
-            val sideAlignment = when (config.dockSideAlignment) {
-                DockSideAlignment.TOP -> if (isLeft) Alignment.TopStart else Alignment.TopEnd
-                DockSideAlignment.CENTER -> if (isLeft) Alignment.CenterStart else Alignment.CenterEnd
-                DockSideAlignment.BOTTOM -> if (isLeft) Alignment.BottomStart else Alignment.BottomEnd
-            }
-            val density = LocalDensity.current
-            var sideYOff by remember(config.dockSideVerticalOffsetDp) {
-                mutableFloatStateOf(config.dockSideVerticalOffsetDp)
-            }
-            val safeVertPad = when (config.dockSideAlignment) {
-                DockSideAlignment.TOP -> Modifier.padding(top = 62.dp)
-                DockSideAlignment.BOTTOM -> Modifier.padding(bottom = if (config.showGlassySidebar) 64.dp else 18.dp)
-                DockSideAlignment.CENTER -> Modifier
-            }
-
-            Box(
-                modifier = Modifier
-                    .align(sideAlignment)
-                    .then(safeVertPad)
-                    .offset { IntOffset(0, with(density) { sideYOff.dp.roundToPx() }) }
-                    .then(
-                        if (isDiyMode) {
-                            Modifier
-                                .border(1.5.dp, VitroCyanAccent, RoundedCornerShape((config.dockCornerRadius + 4f).dp))
-                                .pointerInput(config.dockSideAlignment) {
-                                    detectDragGestures(
-                                        onDragEnd = { onUpdateSideDockOffset(sideYOff) },
-                                        onDrag = { change, drag ->
-                                            change.consume()
-                                            sideYOff = (sideYOff + with(density) { drag.y.toDp().value })
-                                                .coerceIn(-260f, 260f)
-                                        }
-                                    )
-                                }
-                        } else Modifier
-                    )
-                    .testTag("floating_side_dock_container")
-            ) {
-                VitroDockBar(
-                    config = config,
-                    dockApps = dockApps,
-                    telemetry = telemetry,
-                    onLaunchApp = onLaunchApp,
-                    onLongPressApp = onLongPressApp,
-                    onOpenQuickPanel = onOpenQuickPanel
-                )
-                if (isDiyMode && sideYOff != 0f) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .offset(y = (-8).dp)
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xEE0B132B))
-                            .clickable {
-                                sideYOff = 0f
-                                onUpdateSideDockOffset(0f)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Reset Posisi Dock", tint = VitroCyanAccent, modifier = Modifier.size(13.dp))
-                    }
-                }
             }
         }
 
@@ -676,6 +632,87 @@ fun HomeScreen(
                 onOpenStudio = onOpenStudio,
                 onLaunchAppPackage = onLaunchAppPackage
             )
+        }
+    }
+}
+
+@Composable
+private fun DiySideDockSlot(
+    config: LauncherConfig,
+    dockApps: List<InstalledApp>,
+    telemetry: DeviceTelemetry,
+    isDiyMode: Boolean,
+    onLaunchApp: (InstalledApp) -> Unit,
+    onLongPressApp: (InstalledApp) -> Unit,
+    onOpenQuickPanel: () -> Unit,
+    onUpdateSideDockOffset: (Float) -> Unit
+) {
+    val density = LocalDensity.current
+    var sideYOff by remember(config.dockSideVerticalOffsetDp) {
+        mutableFloatStateOf(config.dockSideVerticalOffsetDp)
+    }
+
+    val verticalAlign = when (config.dockSideAlignment) {
+        DockSideAlignment.TOP -> Alignment.TopCenter
+        DockSideAlignment.CENTER -> Alignment.Center
+        DockSideAlignment.BOTTOM -> Alignment.BottomCenter
+    }
+
+    Box(
+        modifier = Modifier.fillMaxHeight(),
+        contentAlignment = verticalAlign
+    ) {
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(0, with(density) { sideYOff.dp.roundToPx() }) }
+                .then(
+                    if (isDiyMode) {
+                        Modifier
+                            .border(1.5.dp, VitroCyanAccent, RoundedCornerShape((config.dockCornerRadius + 4f).dp))
+                            .pointerInput(config.dockSideAlignment) {
+                                detectDragGestures(
+                                    onDragEnd = { onUpdateSideDockOffset(sideYOff) },
+                                    onDrag = { change, drag ->
+                                        change.consume()
+                                        sideYOff = (sideYOff + with(density) { drag.y.toDp().value })
+                                            .coerceIn(-260f, 260f)
+                                    }
+                                )
+                            }
+                    } else Modifier
+                )
+                .testTag("diy_side_dock_slot")
+        ) {
+            VitroDockBar(
+                config = config,
+                dockApps = dockApps,
+                telemetry = telemetry,
+                onLaunchApp = onLaunchApp,
+                onLongPressApp = onLongPressApp,
+                onOpenQuickPanel = onOpenQuickPanel
+            )
+            if (isDiyMode && sideYOff != 0f) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(y = (-8).dp)
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xEE0B132B))
+                        .clickable {
+                            sideYOff = 0f
+                            onUpdateSideDockOffset(0f)
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Rounded.Refresh,
+                        contentDescription = "Reset Posisi Dock",
+                        tint = VitroCyanAccent,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+            }
         }
     }
 }
