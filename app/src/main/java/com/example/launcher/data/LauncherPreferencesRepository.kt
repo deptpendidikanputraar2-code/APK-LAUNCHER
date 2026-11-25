@@ -14,6 +14,7 @@ import com.example.launcher.model.BlackBerryLedConfig
 import com.example.launcher.model.CustomNotificationSound
 import com.example.launcher.model.DockColorPreset
 import com.example.launcher.model.DockLayoutMode
+import com.example.launcher.model.DockSideAlignment
 import com.example.launcher.model.DynamicIslandConfig
 import com.example.launcher.model.DynamicIslandStyle
 import com.example.launcher.model.EdgePanelTriggerZone
@@ -67,6 +68,8 @@ class LauncherPreferencesRepository(private val context: Context) {
 
     private object Keys {
         val DOCK_LAYOUT = stringPreferencesKey("dock_layout")
+        val DOCK_SIDE_ALIGN = stringPreferencesKey("dock_side_align")
+        val DOCK_SIDE_Y_OFFSET = floatPreferencesKey("dock_side_y_offset")
         val DOCK_COLOR = stringPreferencesKey("dock_color")
         val DOCK_OPACITY = floatPreferencesKey("dock_opacity")
         val DOCK_CORNER = floatPreferencesKey("dock_corner")
@@ -123,6 +126,10 @@ class LauncherPreferencesRepository(private val context: Context) {
         val HIDE_SYSTEM_STATUS_BAR = booleanPreferencesKey("hide_system_status_bar")
         val STATUS_POSITION = stringPreferencesKey("status_position")
         val STATUS_ALIGNMENT = stringPreferencesKey("status_alignment")
+        val STATUS_OFFSET_X = floatPreferencesKey("status_offset_x")
+        val STATUS_OFFSET_Y = floatPreferencesKey("status_offset_y")
+        val STATUS_SCALE = floatPreferencesKey("status_scale")
+        val STATUS_WIDTH_PCT = floatPreferencesKey("status_width_pct")
         val BATTERY_STYLE = stringPreferencesKey("battery_style")
         val SHOW_CLOCK = booleanPreferencesKey("show_clock")
         val SHOW_SIGNAL = booleanPreferencesKey("show_signal")
@@ -180,6 +187,8 @@ class LauncherPreferencesRepository(private val context: Context) {
             val sbDef = defaults.searchBar
             LauncherConfig(
                 dockLayout = prefs[Keys.DOCK_LAYOUT].toEnumOrDefault(defaults.dockLayout),
+                dockSideAlignment = prefs[Keys.DOCK_SIDE_ALIGN].toEnumOrDefault(defaults.dockSideAlignment),
+                dockSideVerticalOffsetDp = (prefs[Keys.DOCK_SIDE_Y_OFFSET] ?: defaults.dockSideVerticalOffsetDp).coerceIn(-260f, 260f),
                 dockColor = prefs[Keys.DOCK_COLOR].toEnumOrDefault(defaults.dockColor),
                 dockOpacity = prefs[Keys.DOCK_OPACITY] ?: defaults.dockOpacity,
                 dockCornerRadius = prefs[Keys.DOCK_CORNER] ?: defaults.dockCornerRadius,
@@ -208,10 +217,10 @@ class LauncherPreferencesRepository(private val context: Context) {
                     shape = prefs[Keys.SB_SHAPE].toEnumOrDefault(sbDef.shape),
                     colorPreset = prefs[Keys.SB_COLOR].toEnumOrDefault(sbDef.colorPreset),
                     opacity = (prefs[Keys.SB_OPACITY] ?: sbDef.opacity).coerceIn(0.08f, 0.85f),
-                    widthPercent = (prefs[Keys.SB_WIDTH] ?: sbDef.widthPercent).coerceIn(0.50f, 1.0f),
+                    widthPercent = (prefs[Keys.SB_WIDTH] ?: sbDef.widthPercent).coerceIn(0.45f, 1.0f),
                     heightDp = (prefs[Keys.SB_HEIGHT] ?: sbDef.heightDp).coerceIn(40, 68),
-                    xOffsetDp = (prefs[Keys.SB_X] ?: sbDef.xOffsetDp).coerceIn(-120f, 120f),
-                    yOffsetDp = (prefs[Keys.SB_Y] ?: sbDef.yOffsetDp).coerceIn(-120f, 360f)
+                    xOffsetDp = (prefs[Keys.SB_X] ?: sbDef.xOffsetDp).coerceIn(-180f, 180f),
+                    yOffsetDp = (prefs[Keys.SB_Y] ?: sbDef.yOffsetDp).coerceIn(-460f, 760f)
                 ),
 
                 quickPanelOrientation = prefs[Keys.QP_ORIENTATION].toEnumOrDefault(defaults.quickPanelOrientation),
@@ -251,6 +260,10 @@ class LauncherPreferencesRepository(private val context: Context) {
                 hideSystemStatusBar = prefs[Keys.HIDE_SYSTEM_STATUS_BAR] ?: defaults.hideSystemStatusBar,
                 statusPosition = prefs[Keys.STATUS_POSITION].toEnumOrDefault(defaults.statusPosition),
                 statusAlignment = prefs[Keys.STATUS_ALIGNMENT].toEnumOrDefault(defaults.statusAlignment),
+                statusOffsetXDp = (prefs[Keys.STATUS_OFFSET_X] ?: defaults.statusOffsetXDp).coerceIn(-180f, 180f),
+                statusOffsetYDp = (prefs[Keys.STATUS_OFFSET_Y] ?: defaults.statusOffsetYDp).coerceIn(-40f, 740f),
+                statusScale = (prefs[Keys.STATUS_SCALE] ?: defaults.statusScale).coerceIn(0.70f, 1.45f),
+                statusWidthPercent = (prefs[Keys.STATUS_WIDTH_PCT] ?: defaults.statusWidthPercent).coerceIn(0.45f, 1.0f),
                 batteryStyle = prefs[Keys.BATTERY_STYLE].toEnumOrDefault(defaults.batteryStyle),
                 showClockIndicator = prefs[Keys.SHOW_CLOCK] ?: defaults.showClockIndicator,
                 showSignalIndicator = prefs[Keys.SHOW_SIGNAL] ?: defaults.showSignalIndicator,
@@ -307,6 +320,8 @@ class LauncherPreferencesRepository(private val context: Context) {
     suspend fun saveConfig(config: LauncherConfig) {
         context.launcherDataStore.edit { prefs ->
             prefs[Keys.DOCK_LAYOUT] = config.dockLayout.name
+            prefs[Keys.DOCK_SIDE_ALIGN] = config.dockSideAlignment.name
+            prefs[Keys.DOCK_SIDE_Y_OFFSET] = config.dockSideVerticalOffsetDp
             prefs[Keys.DOCK_COLOR] = config.dockColor.name
             prefs[Keys.DOCK_OPACITY] = config.dockOpacity
             prefs[Keys.DOCK_CORNER] = config.dockCornerRadius
@@ -365,6 +380,10 @@ class LauncherPreferencesRepository(private val context: Context) {
             prefs[Keys.HIDE_SYSTEM_STATUS_BAR] = config.hideSystemStatusBar
             prefs[Keys.STATUS_POSITION] = config.statusPosition.name
             prefs[Keys.STATUS_ALIGNMENT] = config.statusAlignment.name
+            prefs[Keys.STATUS_OFFSET_X] = config.statusOffsetXDp
+            prefs[Keys.STATUS_OFFSET_Y] = config.statusOffsetYDp
+            prefs[Keys.STATUS_SCALE] = config.statusScale
+            prefs[Keys.STATUS_WIDTH_PCT] = config.statusWidthPercent
             prefs[Keys.BATTERY_STYLE] = config.batteryStyle.name
             prefs[Keys.SHOW_CLOCK] = config.showClockIndicator
             prefs[Keys.SHOW_SIGNAL] = config.showSignalIndicator
@@ -559,7 +578,9 @@ class LauncherPreferencesRepository(private val context: Context) {
             rulesStr,
             encodeLamp(led.indicatorLed),
             led.indicatorTrigger.name,
-            led.indicatorUseAutoStatusColor.toString()
+            led.indicatorUseAutoStatusColor.toString(),
+            "%.1f".format(Locale.US, led.cameraRingDiameterDp),
+            "%.1f".format(Locale.US, led.cameraRingStrokeDp)
         ).joinToString("~")
     }
 
@@ -603,9 +624,11 @@ class LauncherPreferencesRepository(private val context: Context) {
         return BlackBerryLedConfig(
             masterEnabled = p[0].toBooleanStrictOrNull() ?: fallback.masterEnabled,
             placement = p[1].toEnumOrDefault(fallback.placement),
-            topOffsetDp = (p[2].toFloatOrNull() ?: fallback.topOffsetDp).coerceIn(2f, 80f),
-            horizontalOffsetDp = (p[3].toFloatOrNull() ?: fallback.horizontalOffsetDp).coerceIn(4f, 140f),
+            topOffsetDp = (p[2].toFloatOrNull() ?: fallback.topOffsetDp).coerceIn(0f, 80f),
+            horizontalOffsetDp = (p[3].toFloatOrNull() ?: fallback.horizontalOffsetDp).coerceIn(-120f, 140f),
             spacingDp = (p[4].toFloatOrNull() ?: fallback.spacingDp).coerceIn(4f, 36f),
+            cameraRingDiameterDp = (p.getOrNull(13)?.toFloatOrNull() ?: fallback.cameraRingDiameterDp).coerceIn(18f, 56f),
+            cameraRingStrokeDp = (p.getOrNull(14)?.toFloatOrNull() ?: fallback.cameraRingStrokeDp).coerceIn(1.5f, 7.0f),
             showOnLockScreen = p[5].toBooleanStrictOrNull() ?: fallback.showOnLockScreen,
             showOverOtherApps = p[6].toBooleanStrictOrNull() ?: fallback.showOverOtherApps,
             appLed = decodeLamp(p[7], fallback.appLed),

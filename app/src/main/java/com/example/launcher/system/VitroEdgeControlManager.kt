@@ -171,10 +171,12 @@ object VitroEdgeControlManager {
             }
 
             // 1. Control Panel top-edge pull-down trigger (works over ALL apps except while QuickPanel itself is open)
+            var edgeReattached = false
             if (config.replaceSystemControlPanel && !isQuickPanelInForeground) {
                 if (edgeView == null || currentZone != config.edgeTriggerZone) {
                     removeTrigger(appContext)
                     attachTrigger(appContext, config.edgeTriggerZone)
+                    edgeReattached = true
                 }
             } else {
                 removeTrigger(appContext)
@@ -185,6 +187,10 @@ object VitroEdgeControlManager {
                 (config.showSystemWideDynamicIsland || config.dynamicIsland.enabled) &&
                 expandedIslandView == null
             if (shouldShowSystemPill) {
+                // Keep Dynamic Island pill ABOVE edge strip so taps on the island are NEVER stolen
+                if (edgeReattached && statusIslandView != null) {
+                    detachPersistentStatusIsland(appContext)
+                }
                 attachPersistentStatusIsland(appContext)
                 updatePersistentStatusTexts(appContext)
             } else {
@@ -596,6 +602,13 @@ object VitroEdgeControlManager {
                     maxLines = 2
                     ellipsize = TextUtils.TruncateAt.END
                 })
+                textCol.addView(TextView(appContext).apply {
+                    text = "Ketuk untuk membuka aplikasi →"
+                    setTextColor(Color.parseColor("#38BDF8"))
+                    textSize = 10.5f
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, (3 * density).toInt(), 0, 0)
+                })
 
                 val closeBtn = TextView(appContext).apply {
                     text = "✕"
@@ -621,7 +634,6 @@ object VitroEdgeControlManager {
                 val (pct, charging) = readQuickBattery(appContext)
                 val netGlyph = readQuickNetworkGlyph(appContext)
                 val nowPlaying = NotificationHub.nowPlaying.value
-                val latestNotif = NotificationHub.notifications.value.firstOrNull()
 
                 // 1. Header Row
                 val header = LinearLayout(appContext).apply {
@@ -682,26 +694,29 @@ object VitroEdgeControlManager {
                 musicRow.addView(mediaKeyButton(appContext, density, "⏭") { dispatchMediaKey(appContext, KeyEvent.KEYCODE_MEDIA_NEXT) })
                 root.addView(musicRow)
 
-                // 3. Latest Clickable Notification Row (if any)
-                if (latestNotif != null) {
+                val recentNotifs = NotificationHub.notifications.value.take(2)
+
+                // 3. Up to 2 Latest Clickable Notification Rows (iPhone-style inside Dynamic Island)
+                recentNotifs.forEach { notif ->
                     val notifRow = LinearLayout(appContext).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER_VERTICAL
-                        background = roundedBox(density, 16f, Color.argb(26, 255, 255, 255), Color.argb(45, 255, 255, 255))
+                        isClickable = true
+                        background = roundedBox(density, 16f, Color.argb(30, 255, 255, 255), Color.argb(55, 56, 189, 248))
                         val p = (10 * density).toInt()
                         setPadding(p, p, p, p)
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.MATCH_PARENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply { topMargin = (8 * density).toInt() }
+                        ).apply { topMargin = (7 * density).toInt() }
                         setOnClickListener {
                             dismissExpandedIsland(appContext, reattachPill = true)
-                            NotificationHub.openNotification(appContext, latestNotif)
+                            NotificationHub.openNotification(appContext, notif)
                         }
                     }
                     val nCol = LinearLayout(appContext).apply { orientation = LinearLayout.VERTICAL }
                     nCol.addView(TextView(appContext).apply {
-                        text = "${latestNotif.appName} • ${latestNotif.title}"
+                        text = "${notif.appName} • ${notif.title}"
                         setTextColor(Color.WHITE)
                         textSize = 12.5f
                         setTypeface(null, Typeface.BOLD)
@@ -709,7 +724,7 @@ object VitroEdgeControlManager {
                         ellipsize = TextUtils.TruncateAt.END
                     })
                     nCol.addView(TextView(appContext).apply {
-                        text = latestNotif.text
+                        text = notif.text
                         setTextColor(Color.parseColor("#CBD5E1"))
                         textSize = 11.5f
                         maxLines = 1
@@ -999,7 +1014,15 @@ object VitroEdgeControlManager {
 
         val density = appContext.resources.displayMetrics.density
         val ledView = systemLedView ?: attachSystemLedOverlay(appContext, density) ?: return
-        ledView.updateStates(led1, led2, ledCfg.placement, ledCfg.spacingDp, now)
+        ledView.updateStates(
+            s1 = led1,
+            s2 = led2,
+            place = ledCfg.placement,
+            spacing = ledCfg.spacingDp,
+            ringDiameter = ledCfg.cameraRingDiameterDp,
+            ringStroke = ledCfg.cameraRingStrokeDp,
+            now = now
+        )
         updateSystemLedWindowPosition(appContext, ledView, density)
 
         // Schedule lightweight blink tick ONLY when at least one active LED uses a blink pattern (or duration expiry)
@@ -1057,26 +1080,38 @@ object VitroEdgeControlManager {
         val haloBoxDp = (maxSizeDp * 2.6f).coerceAtLeast(24f)
 
         val widthPx: Int
-        val heightPx = (haloBoxDp * density).toInt()
+        val heightPx: Int
         val gravity: Int
         val xPos: Int
         val yPos: Int
 
-        if (ledCfg.placement == LedPlacement.BESIDE_DYNAMIC_ISLAND) {
+        if (ledCfg.placement == LedPlacement.CAMERA_RING_A56) {
+            val ringDiamDp = ledCfg.cameraRingDiameterDp.coerceIn(18f, 56f)
+            val strokeDp = ledCfg.cameraRingStrokeDp.coerceIn(1.5f, 7f)
+            val glowPadDp = (strokeDp * 3.2f).coerceAtLeast(10f)
+            val boxDp = ringDiamDp + (glowPadDp * 2f)
+            widthPx = (boxDp * density).toInt()
+            heightPx = (boxDp * density).toInt()
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            xPos = (ledCfg.horizontalOffsetDp * density).toInt()
+            yPos = (ledCfg.topOffsetDp.coerceIn(0f, 80f) * density).toInt()
+        } else if (ledCfg.placement == LedPlacement.BESIDE_DYNAMIC_ISLAND) {
             val totalWidthDp = islandCfg.widthDp.coerceIn(148f, 230f) + (ledCfg.spacingDp * 2f) + (haloBoxDp * 2f)
             widthPx = (totalWidthDp * density).toInt()
+            heightPx = (haloBoxDp * density).toInt()
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             xPos = (islandCfg.horizontalOffsetDp * density).toInt()
             yPos = ((islandCfg.topOffsetDp + (islandCfg.heightDp / 2f) - (haloBoxDp / 2f)).coerceAtLeast(2f) * density).toInt()
         } else {
             val totalWidthDp = (haloBoxDp * 2f) + ledCfg.spacingDp
             widthPx = (totalWidthDp * density).toInt()
+            heightPx = (haloBoxDp * density).toInt()
             gravity = when (ledCfg.placement) {
                 LedPlacement.TOP_LEFT_PAIR -> Gravity.TOP or Gravity.START
                 LedPlacement.TOP_CENTER_PAIR -> Gravity.TOP or Gravity.CENTER_HORIZONTAL
                 else -> Gravity.TOP or Gravity.END
             }
-            xPos = if (ledCfg.placement == LedPlacement.TOP_CENTER_PAIR) 0 else (ledCfg.horizontalOffsetDp * density).toInt()
+            xPos = if (ledCfg.placement == LedPlacement.TOP_CENTER_PAIR) 0 else (ledCfg.horizontalOffsetDp.coerceAtLeast(0f) * density).toInt()
             yPos = (ledCfg.topOffsetDp.coerceIn(2f, 80f) * density).toInt()
         }
 
@@ -1122,10 +1157,16 @@ object VitroEdgeControlManager {
         private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val specPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
 
+        private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+        }
+
         private var led1: ResolvedLedState? = null
         private var led2: ResolvedLedState? = null
-        private var placement: LedPlacement = LedPlacement.TOP_RIGHT_PAIR
+        private var placement: LedPlacement = LedPlacement.CAMERA_RING_A56
         private var spacingDp: Float = 10f
+        private var cameraRingDiameterDp: Float = 30f
+        private var cameraRingStrokeDp: Float = 3.2f
         private var nowMs: Long = 0L
         var latestAppNotification: LiveNotification? = null
             private set
@@ -1135,12 +1176,16 @@ object VitroEdgeControlManager {
             s2: ResolvedLedState,
             place: LedPlacement,
             spacing: Float,
+            ringDiameter: Float,
+            ringStroke: Float,
             now: Long
         ) {
             led1 = s1
             led2 = s2
             placement = place
             spacingDp = spacing
+            cameraRingDiameterDp = ringDiameter
+            cameraRingStrokeDp = ringStroke
             nowMs = now
             latestAppNotification = s1.triggerNotification
             invalidate()
@@ -1152,7 +1197,21 @@ object VitroEdgeControlManager {
             val s2 = led2
             val cy = height / 2f
 
-            if (placement == LedPlacement.BESIDE_DYNAMIC_ISLAND) {
+            if (placement == LedPlacement.CAMERA_RING_A56) {
+                val cx = width / 2f
+                val baseRadius = (cameraRingDiameterDp.coerceIn(18f, 56f) * density / 2f).coerceAtLeast(8f)
+                val strokePx = (cameraRingStrokeDp.coerceIn(1.5f, 7f) * density).coerceAtLeast(2f)
+                val active1 = s1?.isActive == true
+                val active2 = s2?.isActive == true
+                when {
+                    active1 && active2 -> {
+                        drawCameraRing(canvas, cx, cy, baseRadius + strokePx * 0.72f, strokePx * 0.92f, s1!!)
+                        drawCameraRing(canvas, cx, cy, (baseRadius - strokePx * 0.42f).coerceAtLeast(5f), strokePx * 0.78f, s2!!)
+                    }
+                    active1 -> drawCameraRing(canvas, cx, cy, baseRadius, strokePx, s1!!)
+                    active2 -> drawCameraRing(canvas, cx, cy, baseRadius, strokePx, s2!!)
+                }
+            } else if (placement == LedPlacement.BESIDE_DYNAMIC_ISLAND) {
                 if (s1?.isActive == true) {
                     val cx = (s1.sizeDp * 1.3f * density).coerceAtLeast(12f * density)
                     drawDiode(canvas, cx, cy, s1)
@@ -1174,6 +1233,44 @@ object VitroEdgeControlManager {
                     drawDiode(canvas, width / 2f, cy, s2)
                 }
             }
+        }
+
+        private fun drawCameraRing(
+            canvas: Canvas,
+            cx: Float,
+            cy: Float,
+            radius: Float,
+            strokePx: Float,
+            state: ResolvedLedState
+        ) {
+            val intensity = BlackBerryLedEvaluator.computeIntensity(state.pattern, state.blinkIntervalMs, nowMs)
+            if (intensity <= 0.015f) return
+
+            val argb = state.colorHex.toInt()
+            val r = Color.red(argb)
+            val g = Color.green(argb)
+            val b = Color.blue(argb)
+            val glow = state.glowIntensity.coerceIn(0.25f, 1f)
+
+            // Outer neon halo stroke
+            ringPaint.strokeWidth = strokePx * (2.6f + 1.1f * glow)
+            ringPaint.color = Color.argb((75 * glow * intensity).toInt().coerceIn(0, 200), r, g, b)
+            canvas.drawCircle(cx, cy, radius, ringPaint)
+
+            // Mid vivid glow ring
+            ringPaint.strokeWidth = strokePx * 1.55f
+            ringPaint.color = Color.argb((160 * glow * intensity).toInt().coerceIn(0, 235), r, g, b)
+            canvas.drawCircle(cx, cy, radius, ringPaint)
+
+            // Crisp core LED ring
+            ringPaint.strokeWidth = strokePx
+            ringPaint.color = Color.argb((250 * intensity).toInt().coerceIn(0, 255), r, g, b)
+            canvas.drawCircle(cx, cy, radius, ringPaint)
+
+            // Subtle white filament highlight
+            ringPaint.strokeWidth = (strokePx * 0.32f).coerceAtLeast(1f)
+            ringPaint.color = Color.argb((150 * intensity).toInt().coerceIn(0, 220), 255, 255, 255)
+            canvas.drawCircle(cx, cy, radius, ringPaint)
         }
 
         private fun drawDiode(canvas: Canvas, cx: Float, cy: Float, state: ResolvedLedState) {

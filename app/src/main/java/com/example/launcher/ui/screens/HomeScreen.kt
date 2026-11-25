@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.example.launcher.model.DeviceTelemetry
 import com.example.launcher.model.DockLayoutMode
+import com.example.launcher.model.DockSideAlignment
 import com.example.launcher.model.HomeNavTab
 import com.example.launcher.model.HomeWidgetPlacement
 import com.example.launcher.model.InstalledApp
@@ -131,7 +132,9 @@ fun HomeScreen(
     onUpdateHomeWidgetLayout: (String, Float, Int, Float, Float) -> Unit,
     onMoveHomeWidgetPage: (String, Int) -> Unit,
     onRemoveHomeWidget: (String) -> Unit,
-    onUpdateSearchBarLayout: (Float, Int, Float, Float) -> Unit
+    onUpdateSearchBarLayout: (Float, Int, Float, Float) -> Unit,
+    onUpdateSideDockOffset: (Float) -> Unit = {},
+    onUpdateStatusLayout: (Float, Float) -> Unit = { _, _ -> }
 ) {
     val dockApps = remember(installedApps, config.pinnedDockPackages, config.dockMaxIcons) {
         val pinned = config.pinnedDockPackages.mapNotNull { pkg ->
@@ -285,19 +288,24 @@ fun HomeScreen(
                 !(config.dynamicIsland.enabled && config.statusPosition == StatusIndicatorPosition.DYNAMIC_PILL)
 
             if (showHomeTopStatus) {
-                TopStatusIndicatorArea(
-                    config = config,
-                    telemetry = telemetry,
-                    onOpenQuickPanel = onOpenQuickPanel,
-                    onTriggerPopup = onTriggerHomePopup
-                )
+                DiyDraggableStatusWrapper(
+                    offsetXDp = config.statusOffsetXDp,
+                    offsetYDp = config.statusOffsetYDp,
+                    scale = config.statusScale,
+                    isDiyMode = isDiyMode,
+                    onUpdateOffset = onUpdateStatusLayout
+                ) {
+                    TopStatusIndicatorArea(
+                        config = config,
+                        telemetry = telemetry,
+                        onOpenQuickPanel = onOpenQuickPanel,
+                        onTriggerPopup = onTriggerHomePopup
+                    )
+                }
             }
 
             // Home Search Bar at TOP position
-            if (config.searchBar.enabledOnHome &&
-                (config.searchBar.position == SearchBarPosition.TOP ||
-                    config.searchBar.position == SearchBarPosition.FLOATING_DIY)
-            ) {
+            if (config.searchBar.enabledOnHome && config.searchBar.position == SearchBarPosition.TOP) {
                 DiyHomeSearchBarBlock(
                     searchConfig = config.searchBar,
                     isDiyMode = isDiyMode,
@@ -308,23 +316,12 @@ fun HomeScreen(
                 )
             }
 
-            // Middle main workspace
+            // Middle main workspace — ALWAYS 100% full-width so wallpaper & pages never shrink even with Side Dock!
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                if (config.dockLayout == DockLayoutMode.LEFT_RAIL) {
-                    VitroDockBar(
-                        config = config,
-                        dockApps = dockApps,
-                        telemetry = telemetry,
-                        onLaunchApp = onLaunchApp,
-                        onLongPressApp = onLongPressApp,
-                        onOpenQuickPanel = onOpenQuickPanel
-                    )
-                }
-
                 // Multi-page home canvas with DIY draggable & resizable Glass + Android AppWidgets
                 Column(
                     modifier = Modifier
@@ -481,17 +478,6 @@ fun HomeScreen(
                         }
                     }
                 }
-
-                if (config.dockLayout == DockLayoutMode.RIGHT_RAIL) {
-                    VitroDockBar(
-                        config = config,
-                        dockApps = dockApps,
-                        telemetry = telemetry,
-                        onLaunchApp = onLaunchApp,
-                        onLongPressApp = onLongPressApp,
-                        onOpenQuickPanel = onOpenQuickPanel
-                    )
-                }
             }
 
             // Home Search Bar at ABOVE_DOCK position
@@ -519,20 +505,154 @@ fun HomeScreen(
                 )
             }
 
+            // Home Search Bar at BOTTOM position (easy thumb reach at the bottom of Home Screen!)
+            if (config.searchBar.enabledOnHome && config.searchBar.position == SearchBarPosition.BOTTOM) {
+                DiyHomeSearchBarBlock(
+                    searchConfig = config.searchBar,
+                    isDiyMode = isDiyMode,
+                    onEnterDiy = { isDiyMode = true },
+                    onTapSearch = onOpenUniversalSearch,
+                    onOpenStudio = onOpenStudio,
+                    onUpdateLayout = onUpdateSearchBarLayout
+                )
+            }
+
             if (config.showGlassySidebar) {
                 Spacer(modifier = Modifier.height(50.dp))
             }
         }
 
+        // Floating Side Dock Bar (LEFT_RAIL / RIGHT_RAIL) — Wallpaper stays 100% FULL SCREEN,
+        // and user can align Top / Center / Bottom OR drag vertically anywhere in DIY Mode!
+        if (config.dockLayout == DockLayoutMode.LEFT_RAIL || config.dockLayout == DockLayoutMode.RIGHT_RAIL) {
+            val isLeft = config.dockLayout == DockLayoutMode.LEFT_RAIL
+            val sideAlignment = when (config.dockSideAlignment) {
+                DockSideAlignment.TOP -> if (isLeft) Alignment.TopStart else Alignment.TopEnd
+                DockSideAlignment.CENTER -> if (isLeft) Alignment.CenterStart else Alignment.CenterEnd
+                DockSideAlignment.BOTTOM -> if (isLeft) Alignment.BottomStart else Alignment.BottomEnd
+            }
+            val density = LocalDensity.current
+            var sideYOff by remember(config.dockSideVerticalOffsetDp) {
+                mutableFloatStateOf(config.dockSideVerticalOffsetDp)
+            }
+            val safeVertPad = when (config.dockSideAlignment) {
+                DockSideAlignment.TOP -> Modifier.padding(top = 62.dp)
+                DockSideAlignment.BOTTOM -> Modifier.padding(bottom = if (config.showGlassySidebar) 64.dp else 18.dp)
+                DockSideAlignment.CENTER -> Modifier
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(sideAlignment)
+                    .then(safeVertPad)
+                    .offset { IntOffset(0, with(density) { sideYOff.dp.roundToPx() }) }
+                    .then(
+                        if (isDiyMode) {
+                            Modifier
+                                .border(1.5.dp, VitroCyanAccent, RoundedCornerShape((config.dockCornerRadius + 4f).dp))
+                                .pointerInput(config.dockSideAlignment) {
+                                    detectDragGestures(
+                                        onDragEnd = { onUpdateSideDockOffset(sideYOff) },
+                                        onDrag = { change, drag ->
+                                            change.consume()
+                                            sideYOff = (sideYOff + with(density) { drag.y.toDp().value })
+                                                .coerceIn(-260f, 260f)
+                                        }
+                                    )
+                                }
+                        } else Modifier
+                    )
+                    .testTag("floating_side_dock_container")
+            ) {
+                VitroDockBar(
+                    config = config,
+                    dockApps = dockApps,
+                    telemetry = telemetry,
+                    onLaunchApp = onLaunchApp,
+                    onLongPressApp = onLongPressApp,
+                    onOpenQuickPanel = onOpenQuickPanel
+                )
+                if (isDiyMode && sideYOff != 0f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .offset(y = (-8).dp)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xEE0B132B))
+                            .clickable {
+                                sideYOff = 0f
+                                onUpdateSideDockOffset(0f)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Refresh, contentDescription = "Reset Posisi Dock", tint = VitroCyanAccent, modifier = Modifier.size(13.dp))
+                    }
+                }
+            }
+        }
+
+        // Floating Free-DIY Search Bar (outside Column -> freely draggable ANYWHERE on the entire screen!)
+        if (config.searchBar.enabledOnHome && config.searchBar.position == SearchBarPosition.FLOATING_DIY) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = if (config.showGlassySidebar) 68.dp else 20.dp)
+            ) {
+                DiyHomeSearchBarBlock(
+                    searchConfig = config.searchBar,
+                    isDiyMode = isDiyMode,
+                    onEnterDiy = { isDiyMode = true },
+                    onTapSearch = onOpenUniversalSearch,
+                    onOpenStudio = onOpenStudio,
+                    onUpdateLayout = onUpdateSearchBarLayout
+                )
+            }
+        }
+
+        // Free-DIY Status Indicator (draggable anywhere on the full screen!)
+        if (config.statusPosition == StatusIndicatorPosition.FREE_DIY) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (config.dynamicIsland.enabled) 52.dp else 8.dp)
+            ) {
+                DiyDraggableStatusWrapper(
+                    offsetXDp = config.statusOffsetXDp,
+                    offsetYDp = config.statusOffsetYDp,
+                    scale = config.statusScale,
+                    isDiyMode = isDiyMode,
+                    onUpdateOffset = onUpdateStatusLayout
+                ) {
+                    CompactStatusCapsule(
+                        config = config,
+                        telemetry = telemetry,
+                        onClick = onOpenQuickPanel
+                    )
+                }
+            }
+        }
+
         if (config.statusPosition == StatusIndicatorPosition.BOTTOM_CAPSULE) {
-            CompactStatusCapsule(
-                config = config,
-                telemetry = telemetry,
-                onClick = onOpenQuickPanel,
+            Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 108.dp)
-            )
+            ) {
+                DiyDraggableStatusWrapper(
+                    offsetXDp = config.statusOffsetXDp,
+                    offsetYDp = config.statusOffsetYDp,
+                    scale = config.statusScale,
+                    isDiyMode = isDiyMode,
+                    onUpdateOffset = onUpdateStatusLayout
+                ) {
+                    CompactStatusCapsule(
+                        config = config,
+                        telemetry = telemetry,
+                        onClick = onOpenQuickPanel
+                    )
+                }
+            }
         }
 
         // Fully Customizable Upward-Expanding Curved Glassy Sidebar
@@ -556,6 +676,68 @@ fun HomeScreen(
                 onOpenStudio = onOpenStudio,
                 onLaunchAppPackage = onLaunchAppPackage
             )
+        }
+    }
+}
+
+@Composable
+private fun DiyDraggableStatusWrapper(
+    offsetXDp: Float,
+    offsetYDp: Float,
+    scale: Float,
+    isDiyMode: Boolean,
+    onUpdateOffset: (Float, Float) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    var xOff by remember(offsetXDp) { mutableFloatStateOf(offsetXDp) }
+    var yOff by remember(offsetYDp) { mutableFloatStateOf(offsetYDp) }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    with(density) { xOff.dp.roundToPx() },
+                    with(density) { yOff.dp.roundToPx() }
+                )
+            }
+            .scale(scale.coerceIn(0.70f, 1.50f))
+            .then(
+                if (isDiyMode) {
+                    Modifier
+                        .border(1.4.dp, VitroCyanAccent, RoundedCornerShape(24.dp))
+                        .pointerInput(Unit) {
+                            detectDragGestures(
+                                onDragEnd = { onUpdateOffset(xOff, yOff) },
+                                onDrag = { change, drag ->
+                                    change.consume()
+                                    xOff = (xOff + with(density) { drag.x.toDp().value }).coerceIn(-180f, 180f)
+                                    yOff = (yOff + with(density) { drag.y.toDp().value }).coerceIn(-40f, 680f)
+                                }
+                            )
+                        }
+                } else Modifier
+            )
+            .testTag("diy_draggable_status_indicator")
+    ) {
+        content()
+        if (isDiyMode && (xOff != 0f || yOff != 0f)) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset(x = (-6).dp, y = (-6).dp)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xEE0B132B))
+                    .clickable {
+                        xOff = 0f
+                        yOff = 0f
+                        onUpdateOffset(0f, 0f)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Rounded.Refresh, contentDescription = "Reset Posisi Indikator", tint = VitroCyanAccent, modifier = Modifier.size(12.dp))
+            }
         }
     }
 }
@@ -584,7 +766,7 @@ private fun DiyHomeSearchBarBlock(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(widthPct.coerceIn(0.50f, 1.0f))
+                .fillMaxWidth(widthPct.coerceIn(0.45f, 1.0f))
                 .offset {
                     IntOffset(
                         with(density) { xOff.dp.roundToPx() },
@@ -600,8 +782,8 @@ private fun DiyHomeSearchBarBlock(
                                     onDragEnd = { onUpdateLayout(widthPct, heightDp.roundToInt(), xOff, yOff) },
                                     onDrag = { change, drag ->
                                         change.consume()
-                                        xOff = (xOff + with(density) { drag.x.toDp().value }).coerceIn(-120f, 120f)
-                                        yOff = (yOff + with(density) { drag.y.toDp().value }).coerceIn(-120f, 360f)
+                                        xOff = (xOff + with(density) { drag.x.toDp().value }).coerceIn(-180f, 180f)
+                                        yOff = (yOff + with(density) { drag.y.toDp().value }).coerceIn(-460f, 760f)
                                     }
                                 )
                             }
@@ -670,7 +852,7 @@ private fun DiyHomeSearchBarBlock(
                                 onDragEnd = { onUpdateLayout(widthPct, heightDp.roundToInt(), xOff, yOff) },
                                 onDrag = { change, drag ->
                                     change.consume()
-                                    widthPct = (widthPct + with(density) { drag.x.toDp().value } / 320f).coerceIn(0.50f, 1.0f)
+                                    widthPct = (widthPct + with(density) { drag.x.toDp().value } / 320f).coerceIn(0.45f, 1.0f)
                                     heightDp = (heightDp + with(density) { drag.y.toDp().value }).coerceIn(40f, 68f)
                                 }
                             )

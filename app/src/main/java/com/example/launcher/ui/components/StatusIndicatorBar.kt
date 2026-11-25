@@ -57,15 +57,21 @@ fun TopStatusIndicatorArea(
 ) {
     when (config.statusPosition) {
         StatusIndicatorPosition.TOP_STATUS_BAR -> {
-            TopClassicStatusBar(
-                config = config,
-                telemetry = telemetry,
-                onOpenQuickPanel = onOpenQuickPanel,
-                onTriggerPopup = onTriggerPopup,
-                modifier = modifier
-            )
+            Box(
+                modifier = modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                TopClassicStatusBar(
+                    config = config,
+                    telemetry = telemetry,
+                    onOpenQuickPanel = onOpenQuickPanel,
+                    onTriggerPopup = onTriggerPopup,
+                    modifier = Modifier.fillMaxWidth(config.statusWidthPercent.coerceIn(0.45f, 1.0f))
+                )
+            }
         }
-        StatusIndicatorPosition.DYNAMIC_PILL -> {
+        StatusIndicatorPosition.DYNAMIC_PILL,
+        StatusIndicatorPosition.FREE_DIY -> {
             Box(
                 modifier = modifier
                     .fillMaxWidth()

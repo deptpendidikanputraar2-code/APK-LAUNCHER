@@ -443,13 +443,44 @@ fun BlackBerryDualLedOverlay(
         BlackBerryLedEvaluator.computeIntensity(led2.pattern, led2.blinkIntervalMs, nowMillis)
     } else 0f
 
-    Box(
-        modifier = modifier
+    val rootModifier = if (ledConfig.placement == LedPlacement.CAMERA_RING_A56) {
+        modifier
+            .fillMaxSize()
+            .testTag("blackberry_dual_led_overlay")
+    } else {
+        modifier
             .fillMaxSize()
             .displayCutoutPadding()
             .testTag("blackberry_dual_led_overlay")
-    ) {
+    }
+
+    Box(modifier = rootModifier) {
         when (ledConfig.placement) {
+            LedPlacement.CAMERA_RING_A56 -> {
+                SamsungCameraRingLed(
+                    led1Active = led1.isActive,
+                    led1Color = Color(led1.colorHex),
+                    led1Intensity = intensity1,
+                    led1Glow = led1.glowIntensity,
+                    led2Active = led2.isActive,
+                    led2Color = Color(led2.colorHex),
+                    led2Intensity = intensity2,
+                    led2Glow = led2.glowIntensity,
+                    ringDiameterDp = ledConfig.cameraRingDiameterDp.coerceIn(18f, 56f).dp,
+                    ringStrokeDp = ledConfig.cameraRingStrokeDp.coerceIn(1.5f, 7f).dp,
+                    showCameraCutoutPreview = false,
+                    contentDescription = "LED Melingkar Kamera (${led1.statusLabel.ifBlank { led2.statusLabel }})",
+                    onClick = led1.triggerNotification?.let { notif -> { onTapAppLedNotification(notif) } },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .offset(
+                            x = ledConfig.horizontalOffsetDp.dp,
+                            y = ledConfig.topOffsetDp.dp
+                        )
+                        .testTag("samsung_camera_ring_led")
+                )
+            }
+
             LedPlacement.BESIDE_DYNAMIC_ISLAND -> {
                 val halfIsland = (islandConfig.widthDp / 2f) + ledConfig.spacingDp + 12f
                 val topY = (islandConfig.topOffsetDp + (islandConfig.heightDp / 2f) - 12f).coerceAtLeast(4f)
@@ -499,7 +530,7 @@ fun BlackBerryDualLedOverlay(
                 val horizontalPad = if (ledConfig.placement == LedPlacement.TOP_CENTER_PAIR) {
                     0.dp
                 } else {
-                    ledConfig.horizontalOffsetDp.dp
+                    ledConfig.horizontalOffsetDp.coerceAtLeast(0f).dp
                 }
 
                 Row(
@@ -535,6 +566,121 @@ fun BlackBerryDualLedOverlay(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Samsung Galaxy A56-style luminous punch-hole camera ring LED.
+ * Encircles the front camera lens cleanly:
+ * - Single active LED -> crisp glowing 360° ring.
+ * - Both LED 1 (Apps) & LED 2 (Indicator) active -> dual concentric glowing rings
+ *   (LED 1 outer ring + LED 2 inner ring) blinking independently!
+ */
+@Composable
+fun SamsungCameraRingLed(
+    led1Active: Boolean,
+    led1Color: Color,
+    led1Intensity: Float,
+    led1Glow: Float,
+    led2Active: Boolean,
+    led2Color: Color,
+    led2Intensity: Float,
+    led2Glow: Float,
+    ringDiameterDp: Dp,
+    ringStrokeDp: Dp,
+    showCameraCutoutPreview: Boolean = false,
+    contentDescription: String = "LED Melingkar Kamera",
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val glowPad = (ringStrokeDp * 3.2f).coerceAtLeast(10.dp)
+    val canvasSize = ringDiameterDp + (glowPad * 2f)
+
+    val clickMod = if (onClick != null) {
+        Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick
+        )
+    } else Modifier
+
+    Canvas(
+        modifier = modifier
+            .size(canvasSize)
+            .semantics { this.contentDescription = contentDescription }
+            .then(clickMod)
+    ) {
+        val center = Offset(size.width / 2f, size.height / 2f)
+        val baseRadius = (ringDiameterDp.toPx() / 2f).coerceAtLeast(8f)
+        val strokePx = ringStrokeDp.toPx().coerceAtLeast(2f)
+
+        if (showCameraCutoutPreview) {
+            // Simulated Samsung A56 punch-hole camera lens inside Studio preview
+            drawCircle(
+                color = Color(0xFF020408),
+                radius = (baseRadius - strokePx * 0.7f).coerceAtLeast(4f),
+                center = center
+            )
+            drawCircle(
+                color = Color(0xFF1A233A),
+                radius = (baseRadius * 0.38f).coerceAtLeast(2f),
+                center = center
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.28f),
+                radius = (baseRadius * 0.14f).coerceAtLeast(1.2f),
+                center = center - Offset(baseRadius * 0.16f, baseRadius * 0.16f)
+            )
+        }
+
+        fun drawGlowingRing(color: Color, intensity: Float, glow: Float, radius: Float, width: Float) {
+            val clamped = intensity.coerceIn(0f, 1f)
+            if (clamped <= 0.015f) return
+            val g = glow.coerceIn(0.25f, 1f)
+            // Soft outer neon halo stroke
+            drawCircle(
+                color = color.copy(alpha = (0.28f * g * clamped).coerceIn(0f, 0.7f)),
+                radius = radius,
+                center = center,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = width * (2.6f + 1.1f * g))
+            )
+            // Mid vivid glow ring
+            drawCircle(
+                color = color.copy(alpha = (0.62f * g * clamped).coerceIn(0f, 0.92f)),
+                radius = radius,
+                center = center,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = width * 1.55f)
+            )
+            // Crisp saturated LED core ring
+            drawCircle(
+                color = color.copy(alpha = (0.98f * clamped).coerceIn(0f, 1f)),
+                radius = radius,
+                center = center,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = width)
+            )
+            // Inner specular white filament highlight
+            drawCircle(
+                color = Color.White.copy(alpha = (0.58f * clamped).coerceIn(0f, 0.85f)),
+                radius = radius,
+                center = center,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = (width * 0.32f).coerceAtLeast(1f))
+            )
+        }
+
+        when {
+            led1Active && led2Active -> {
+                val outerRadius = baseRadius + strokePx * 0.72f
+                val innerRadius = (baseRadius - strokePx * 0.42f).coerceAtLeast(5f)
+                drawGlowingRing(led1Color, led1Intensity, led1Glow, outerRadius, strokePx * 0.92f)
+                drawGlowingRing(led2Color, led2Intensity, led2Glow, innerRadius, strokePx * 0.78f)
+            }
+            led1Active -> {
+                drawGlowingRing(led1Color, led1Intensity, led1Glow, baseRadius, strokePx)
+            }
+            led2Active -> {
+                drawGlowingRing(led2Color, led2Intensity, led2Glow, baseRadius, strokePx)
             }
         }
     }

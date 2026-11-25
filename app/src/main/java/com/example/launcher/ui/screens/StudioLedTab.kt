@@ -59,6 +59,7 @@ import com.example.launcher.model.LedLampConfig
 import com.example.launcher.model.LedPlacement
 import com.example.launcher.ui.components.BlackBerryLedDiode
 import com.example.launcher.ui.components.BlackBerryLedEvaluator
+import com.example.launcher.ui.components.SamsungCameraRingLed
 import com.example.launcher.ui.components.VitroGlassContainer
 import com.example.launcher.ui.components.bouncyClickable
 import com.example.ui.theme.VitroAmber
@@ -149,9 +150,13 @@ fun BlackBerryLedStudioTab(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Pratinjau Live LED BlackBerry",
+                            text = if (led.placement == LedPlacement.CAMERA_RING_A56) {
+                                "Pratinjau Cincin Kamera A56"
+                            } else {
+                                "Pratinjau Live LED BlackBerry"
+                            },
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = VitroTextPrimary
                         )
@@ -161,34 +166,60 @@ fun BlackBerryLedStudioTab(
                             color = VitroTextSecondary
                         )
                     }
-                    // Simulated sleek hardware bezel strip housing both LEDs
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50.dp))
-                            .background(Color(0xFF020409))
-                            .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(50.dp))
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(led.spacingDp.coerceIn(6f, 22f).dp),
-                            verticalAlignment = Alignment.CenterVertically
+                    if (led.placement == LedPlacement.CAMERA_RING_A56) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50.dp))
+                                .background(Color(0xFF020409))
+                                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(50.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            BlackBerryLedDiode(
-                                color = Color(led.appLed.colorHex),
-                                intensity = previewIntensity1,
-                                sizeDp = led.appLed.sizeDp.dp,
-                                glowIntensity = led.appLed.glowIntensity,
-                                showDormantLens = true,
-                                contentDescription = "Pratinjau LED 1 Aplikasi"
+                            SamsungCameraRingLed(
+                                led1Active = led.masterEnabled && led.appLed.enabled,
+                                led1Color = Color(led.appLed.colorHex),
+                                led1Intensity = previewIntensity1,
+                                led1Glow = led.appLed.glowIntensity,
+                                led2Active = led.masterEnabled && led.indicatorLed.enabled,
+                                led2Color = Color(led.indicatorLed.colorHex),
+                                led2Intensity = previewIntensity2,
+                                led2Glow = led.indicatorLed.glowIntensity,
+                                ringDiameterDp = led.cameraRingDiameterDp.coerceIn(22f, 44f).dp,
+                                ringStrokeDp = led.cameraRingStrokeDp.coerceIn(1.5f, 6f).dp,
+                                showCameraCutoutPreview = true,
+                                contentDescription = "Pratinjau LED Melingkar Kamera A56"
                             )
-                            BlackBerryLedDiode(
-                                color = Color(led.indicatorLed.colorHex),
-                                intensity = previewIntensity2,
-                                sizeDp = led.indicatorLed.sizeDp.dp,
-                                glowIntensity = led.indicatorLed.glowIntensity,
-                                showDormantLens = true,
-                                contentDescription = "Pratinjau LED 2 Indikator"
-                            )
+                        }
+                    } else {
+                        // Simulated sleek hardware bezel strip housing both LEDs
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50.dp))
+                                .background(Color(0xFF020409))
+                                .border(1.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(50.dp))
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(led.spacingDp.coerceIn(6f, 22f).dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                BlackBerryLedDiode(
+                                    color = Color(led.appLed.colorHex),
+                                    intensity = previewIntensity1,
+                                    sizeDp = led.appLed.sizeDp.dp,
+                                    glowIntensity = led.appLed.glowIntensity,
+                                    showDormantLens = true,
+                                    contentDescription = "Pratinjau LED 1 Aplikasi"
+                                )
+                                BlackBerryLedDiode(
+                                    color = Color(led.indicatorLed.colorHex),
+                                    intensity = previewIntensity2,
+                                    sizeDp = led.indicatorLed.sizeDp.dp,
+                                    glowIntensity = led.indicatorLed.glowIntensity,
+                                    showDormantLens = true,
+                                    contentDescription = "Pratinjau LED 2 Indikator"
+                                )
+                            }
                         }
                     }
                 }
@@ -559,27 +590,59 @@ fun BlackBerryLedStudioTab(
                         }
                     }
 
-                    StudioSliderRow(
-                        label = "Jarak dari Tepi Atas (Posisi Y)",
-                        valueText = "${led.topOffsetDp.roundToInt()} dp",
-                        value = led.topOffsetDp,
-                        range = 2f..80f,
-                        onValueChange = { v -> updateLed { it.copy(topOffsetDp = v) } }
-                    )
-                    StudioSliderRow(
-                        label = "Jarak dari Tepi Kiri/Kanan (Posisi X)",
-                        valueText = "${led.horizontalOffsetDp.roundToInt()} dp",
-                        value = led.horizontalOffsetDp,
-                        range = 4f..120f,
-                        onValueChange = { v -> updateLed { it.copy(horizontalOffsetDp = v) } }
-                    )
-                    StudioSliderRow(
-                        label = "Jarak Antar Lampu LED 1 & LED 2",
-                        valueText = "${led.spacingDp.roundToInt()} dp",
-                        value = led.spacingDp,
-                        range = 4f..34f,
-                        onValueChange = { v -> updateLed { it.copy(spacingDp = v) } }
-                    )
+                    if (led.placement == LedPlacement.CAMERA_RING_A56) {
+                        StudioSectionTitle("Kalibrasi Lingkaran Kamera (Samsung A56)")
+                        StudioSliderRow(
+                            label = "Diameter Lingkaran Kamera",
+                            valueText = "${led.cameraRingDiameterDp.roundToInt()} dp",
+                            value = led.cameraRingDiameterDp,
+                            range = 18f..56f,
+                            onValueChange = { v -> updateLed { it.copy(cameraRingDiameterDp = v) } }
+                        )
+                        StudioSliderRow(
+                            label = "Ketebalan Cincin Cahaya LED",
+                            valueText = String.format("%.1f dp", led.cameraRingStrokeDp),
+                            value = led.cameraRingStrokeDp,
+                            range = 1.5f..7.0f,
+                            onValueChange = { v -> updateLed { it.copy(cameraRingStrokeDp = v) } }
+                        )
+                        StudioSliderRow(
+                            label = "Posisi Vertikal Y (Pas Lubang Kamera)",
+                            valueText = "${led.topOffsetDp.roundToInt()} dp",
+                            value = led.topOffsetDp,
+                            range = 0f..60f,
+                            onValueChange = { v -> updateLed { it.copy(topOffsetDp = v) } }
+                        )
+                        StudioSliderRow(
+                            label = "Geser Horizontal X Kamera",
+                            valueText = "${led.horizontalOffsetDp.roundToInt()} dp",
+                            value = led.horizontalOffsetDp.coerceIn(-60f, 60f),
+                            range = -60f..60f,
+                            onValueChange = { v -> updateLed { it.copy(horizontalOffsetDp = v) } }
+                        )
+                    } else {
+                        StudioSliderRow(
+                            label = "Jarak dari Tepi Atas (Posisi Y)",
+                            valueText = "${led.topOffsetDp.roundToInt()} dp",
+                            value = led.topOffsetDp,
+                            range = 2f..80f,
+                            onValueChange = { v -> updateLed { it.copy(topOffsetDp = v) } }
+                        )
+                        StudioSliderRow(
+                            label = "Jarak dari Tepi Kiri/Kanan (Posisi X)",
+                            valueText = "${led.horizontalOffsetDp.roundToInt()} dp",
+                            value = led.horizontalOffsetDp.coerceIn(4f, 120f),
+                            range = 4f..120f,
+                            onValueChange = { v -> updateLed { it.copy(horizontalOffsetDp = v) } }
+                        )
+                        StudioSliderRow(
+                            label = "Jarak Antar Lampu LED 1 & LED 2",
+                            valueText = "${led.spacingDp.roundToInt()} dp",
+                            value = led.spacingDp,
+                            range = 4f..34f,
+                            onValueChange = { v -> updateLed { it.copy(spacingDp = v) } }
+                        )
+                    }
 
                     StudioSectionTitle("Tampilan Lintas Layar")
                     StudioToggleRow(

@@ -93,6 +93,9 @@ object NotificationHub {
             }
         }
 
+        // Prefer an Activity context or active NotificationListenerService context for Android 14-16 BAL reliability
+        val privilegedContext: Context = if (context is Activity) context else (serviceRef?.get() ?: context)
+
         // Always look up the freshest PendingIntent in case the notification updated since rendering
         val freshestPending = _notifications.value
             .firstOrNull { it.key == notification.key }
@@ -115,7 +118,7 @@ object NotificationHub {
                             )
                         }
                     }.toBundle()
-                    freshestPending.send(context, 0, null, null, null, null, opts)
+                    freshestPending.send(privilegedContext, 0, null, null, null, null, opts)
                     true
                 }.getOrDefault(false)
             } else {
@@ -132,14 +135,14 @@ object NotificationHub {
 
         // Fallback 1: Launch target app directly by packageName
         val launchedApp = runCatching {
-            val launch = context.packageManager.getLaunchIntentForPackage(notification.packageName)
+            val launch = privilegedContext.packageManager.getLaunchIntentForPackage(notification.packageName)
             if (launch != null) {
                 launch.addFlags(
                     Intent.FLAG_ACTIVITY_NEW_TASK or
                         Intent.FLAG_ACTIVITY_CLEAR_TOP or
                         Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
                 )
-                context.startActivity(launch)
+                privilegedContext.startActivity(launch)
                 true
             } else false
         }.getOrDefault(false)
@@ -148,7 +151,7 @@ object NotificationHub {
         // Fallback 2: For Android System / SystemUI notifications that have no launcher icon
         if (notification.packageName == "android" || notification.packageName.contains("systemui")) {
             return runCatching {
-                context.startActivity(
+                privilegedContext.startActivity(
                     Intent(Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
                 true

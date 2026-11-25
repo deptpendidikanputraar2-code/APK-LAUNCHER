@@ -238,15 +238,17 @@ fun VitroDynamicIsland(
         IslandVisualState.EXPANDED_FULL -> 356.dp
     }
 
+    val expandedNotifs = if (islandConfig.showNotifications) notifications.take(2) else emptyList()
+
     val targetHeight = when (visualState) {
         IslandVisualState.COMPACT -> islandConfig.heightDp.coerceIn(28f, 54f).dp
         IslandVisualState.AUTO_SYSTEM_STATUS -> 66.dp
-        IslandVisualState.AUTO_NOTIF -> 108.dp
+        IslandVisualState.AUTO_NOTIF -> 114.dp
         IslandVisualState.EXPANDED_FULL -> {
-            var h = 154
-            if (hasMedia) h += 58
-            if (latestNotif != null && islandConfig.showNotifications) h += 64
-            h.coerceAtMost(276).dp
+            var h = 150
+            if (hasMedia) h += 64
+            if (expandedNotifs.isNotEmpty()) h += (58 * expandedNotifs.size) + 8
+            h.coerceAtMost(352).dp
         }
     }
 
@@ -429,7 +431,7 @@ fun VitroDynamicIsland(
                         islandConfig = islandConfig,
                         telemetry = telemetry,
                         overlays = overlays,
-                        latestNotif = latestNotif,
+                        recentNotifications = expandedNotifs,
                         nowPlaying = nowPlaying,
                         hasMedia = hasMedia,
                         accentColor = style.accentColor,
@@ -715,68 +717,61 @@ private fun AutoNotificationExpandContent(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .clickable { onOpen(notification) }
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .testTag("dynamic_island_auto_notif_click"),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(16.dp))
-                .clickable { onOpen(notification) }
-                .padding(horizontal = 4.dp, vertical = 4.dp)
-                .testTag("dynamic_island_auto_notif_click"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (notification.appIcon != null) {
-                Image(
-                    bitmap = notification.appIcon,
-                    contentDescription = notification.appName,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(accentColor.copy(alpha = 0.25f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Rounded.NotificationsActive,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${notification.appName} • Baru Saja",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accentColor,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = notification.title,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = VitroTextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = notification.text,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = VitroTextSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+        if (notification.appIcon != null) {
+            Image(
+                bitmap = notification.appIcon,
+                contentDescription = notification.appName,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(accentColor.copy(alpha = 0.25f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.NotificationsActive,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(22.dp)
                 )
             }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "${notification.appName} • Ketuk untuk buka",
+                style = MaterialTheme.typography.labelSmall,
+                color = accentColor,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = notification.title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = VitroTextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = notification.text,
+                style = MaterialTheme.typography.bodySmall,
+                color = VitroTextSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
         IconButton(
             onClick = { onDismiss(notification.key) },
@@ -797,7 +792,7 @@ private fun ExpandedProMaxContent(
     islandConfig: DynamicIslandConfig,
     telemetry: DeviceTelemetry,
     overlays: LauncherUiOverlays,
-    latestNotif: LiveNotification?,
+    recentNotifications: List<LiveNotification>,
     nowPlaying: NowPlayingInfo,
     hasMedia: Boolean,
     accentColor: Color,
@@ -954,59 +949,71 @@ private fun ExpandedProMaxContent(
             }
         }
 
-        // Latest Live Notification Preview inside Expanded Island
-        if (islandConfig.showNotifications && latestNotif != null) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color.White.copy(alpha = 0.08f))
-                    .clickable { onOpenNotification(latestNotif) }
-                    .padding(horizontal = 11.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                if (latestNotif.appIcon != null) {
-                    Image(
-                        bitmap = latestNotif.appIcon,
-                        contentDescription = latestNotif.appName,
-                        modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp))
-                    )
-                } else {
-                    Icon(
-                        Icons.Rounded.NotificationsActive,
-                        contentDescription = null,
-                        tint = accentColor,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${latestNotif.appName} • ${latestNotif.title}",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = VitroTextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = latestNotif.text,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VitroTextSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                IconButton(
-                    onClick = { onDismissNotification(latestNotif.key) },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.Close,
-                        contentDescription = "Hapus",
-                        tint = VitroTextSecondary,
-                        modifier = Modifier.size(14.dp)
-                    )
+        // Up to 2 Live Clickable Notifications inside Expanded Dynamic Island (iPhone style)
+        if (islandConfig.showNotifications && recentNotifications.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                recentNotifications.forEach { notif ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color.White.copy(alpha = 0.09f))
+                            .border(0.8.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                            .clickable { onOpenNotification(notif) }
+                            .padding(horizontal = 11.dp, vertical = 7.dp)
+                            .testTag("dynamic_island_notif_item"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        if (notif.appIcon != null) {
+                            Image(
+                                bitmap = notif.appIcon,
+                                contentDescription = notif.appName,
+                                modifier = Modifier.size(28.dp).clip(RoundedCornerShape(9.dp))
+                            )
+                        } else {
+                            Icon(
+                                Icons.Rounded.NotificationsActive,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "${notif.appName} • ${notif.title}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = VitroTextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = notif.text,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = VitroTextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            text = "Buka",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = accentColor
+                        )
+                        IconButton(
+                            onClick = { onDismissNotification(notif.key) },
+                            modifier = Modifier.size(26.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.Close,
+                                contentDescription = "Hapus",
+                                tint = VitroTextSecondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
                 }
             }
         }

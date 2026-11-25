@@ -8,8 +8,14 @@ import androidx.compose.ui.graphics.ImageBitmap
 enum class DockLayoutMode(val label: String, val subtitle: String) {
     FLOATING_BOTTOM("Bawah Melayang", "Kapsul kaca di bawah layar"),
     FULL_EDGE_BOTTOM("Bawah Penuh", "Menempel penuh ke tepi bawah"),
-    LEFT_RAIL("Rel Kiri", "Dock vertikal di sisi kiri"),
-    RIGHT_RAIL("Rel Kanan", "Dock vertikal di sisi kanan")
+    LEFT_RAIL("Rel Kiri", "Dock vertikal melayang di sisi kiri"),
+    RIGHT_RAIL("Rel Kanan", "Dock vertikal melayang di sisi kanan")
+}
+
+enum class DockSideAlignment(val label: String) {
+    TOP("Atas"),
+    CENTER("Tengah"),
+    BOTTOM("Bawah")
 }
 
 enum class DockColorPreset(
@@ -138,6 +144,7 @@ enum class LedBlinkPattern(val label: String, val subtitle: String) {
 }
 
 enum class LedPlacement(val label: String, val subtitle: String) {
+    CAMERA_RING_A56("Melingkar Kamera (Samsung A56)", "Cincin LED bercahaya melingkari lubang kamera depan ala Samsung A56"),
     TOP_RIGHT_PAIR("Pojok Kanan Atas (BlackBerry)", "Posisi klasik 2 lampu LED di sudut kanan atas"),
     TOP_LEFT_PAIR("Pojok Kiri Atas", "Dua lampu LED sejajar di sudut kiri atas"),
     BESIDE_DYNAMIC_ISLAND("Mengapit Dynamic Island", "LED 1 di kiri & LED 2 di kanan Dynamic Island"),
@@ -183,10 +190,12 @@ data class LedLampConfig(
 
 data class BlackBerryLedConfig(
     val masterEnabled: Boolean = true,
-    val placement: LedPlacement = LedPlacement.TOP_RIGHT_PAIR,
-    val topOffsetDp: Float = 14f,
-    val horizontalOffsetDp: Float = 16f,
+    val placement: LedPlacement = LedPlacement.CAMERA_RING_A56,
+    val topOffsetDp: Float = 9f,
+    val horizontalOffsetDp: Float = 0f,
     val spacingDp: Float = 10f,
+    val cameraRingDiameterDp: Float = 30f, // 18 .. 56 dp (Samsung A56 punch-hole default)
+    val cameraRingStrokeDp: Float = 3.2f,  // 1.5 .. 7.0 dp
     val showOnLockScreen: Boolean = true,
     val showOverOtherApps: Boolean = true,
     // LED 1: Notifikasi Aplikasi Tertentu
@@ -197,7 +206,7 @@ data class BlackBerryLedConfig(
         blinkIntervalMs = 1700,
         durationSeconds = 0,
         sizeDp = 10f,
-        glowIntensity = 0.90f
+        glowIntensity = 0.92f
     ),
     val appLedAllAppsFallback: Boolean = true,
     val appRules: List<LedAppRule> = emptyList(),
@@ -209,7 +218,7 @@ data class BlackBerryLedConfig(
         blinkIntervalMs = 2400,
         durationSeconds = 0,
         sizeDp = 9.5f,
-        glowIntensity = 0.84f
+        glowIntensity = 0.85f
     ),
     val indicatorTrigger: LedIndicatorTrigger = LedIndicatorTrigger.SMART_AUTO,
     val indicatorUseAutoStatusColor: Boolean = true
@@ -234,10 +243,11 @@ enum class LockClockColor(val label: String, val primary: Color, val accent: Col
 }
 
 enum class SearchBarPosition(val label: String) {
-    TOP("Atas Layar"),
-    MIDDLE("Tengah Layar"),
+    BOTTOM("Bawah Layar"),
     ABOVE_DOCK("Di Atas Dock"),
-    FLOATING_DIY("Bebas (DIY)")
+    MIDDLE("Tengah Layar"),
+    TOP("Atas Layar"),
+    FLOATING_DIY("Bebas DIY (Mana Saja)")
 }
 
 enum class SearchBarShape(val label: String, val cornerDp: Float) {
@@ -311,10 +321,11 @@ data class SidebarItemConfig(
 )
 
 enum class StatusIndicatorPosition(val label: String, val description: String) {
-    TOP_STATUS_BAR("Status Bar Atas", "Baris atas klasik bebas tumpang tindih"),
-    DYNAMIC_PILL("Pulau Kaca Atas", "Kapsul kaca mengambang di tengah atas"),
+    TOP_STATUS_BAR("Status Bar Atas", "Baris atas klasik yang juga bisa digeser bebas"),
+    DYNAMIC_PILL("Pulau Kaca Atas", "Kapsul kaca mengambang bebas atur posisi"),
     INSIDE_DOCK("Terpadu di Dock", "Indikator ringkas menyatu dengan Dock Bar"),
-    BOTTOM_CAPSULE("Kapsul Sudut Bawah", "Lencana mengambang di sudut kanan bawah"),
+    BOTTOM_CAPSULE("Kapsul Sudut Bawah", "Lencana mengambang di area bawah layar"),
+    FREE_DIY("Bebas DIY (Mana Saja)", "Geser bebas indikator ke titik mana pun di layar"),
     HIDDEN("Tersembunyi", "Tampilan layar penuh tanpa indikator")
 }
 
@@ -556,6 +567,8 @@ fun defaultLockWidgets(): List<HomeWidgetPlacement> = listOf(
 data class LauncherConfig(
     // 1. Dock Bar
     val dockLayout: DockLayoutMode = DockLayoutMode.FLOATING_BOTTOM,
+    val dockSideAlignment: DockSideAlignment = DockSideAlignment.CENTER,
+    val dockSideVerticalOffsetDp: Float = 0f,
     val dockColor: DockColorPreset = DockColorPreset.FROSTED_CLEAR,
     val dockOpacity: Float = 0.24f,
     val dockCornerRadius: Float = 28f,
@@ -602,10 +615,14 @@ data class LauncherConfig(
     // 5b. Dual BlackBerry LED Notification & System Indicator Lamps
     val ledConfig: BlackBerryLedConfig = BlackBerryLedConfig(),
 
-    // 6. Status Indicators (Hide native status bar to eliminate overlap)
+    // 6. Status Indicators (Hide native status bar & free layout anywhere)
     val hideSystemStatusBar: Boolean = true,
     val statusPosition: StatusIndicatorPosition = StatusIndicatorPosition.TOP_STATUS_BAR,
     val statusAlignment: StatusSlotAlignment = StatusSlotAlignment.CLASSIC_SPLIT,
+    val statusOffsetXDp: Float = 0f,
+    val statusOffsetYDp: Float = 0f,
+    val statusScale: Float = 1.0f,
+    val statusWidthPercent: Float = 1.0f,
     val batteryStyle: BatteryIconStyle = BatteryIconStyle.CAPSULE,
     val showClockIndicator: Boolean = true,
     val showSignalIndicator: Boolean = true,

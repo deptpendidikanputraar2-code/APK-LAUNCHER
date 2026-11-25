@@ -193,10 +193,10 @@ fun SearchBarStudioTab(
             }
         }
 
-        // Sliders: Opacity, Width, Height
+        // Sliders: Opacity, Width, Height & Free DIY X/Y Position
         VitroGlassContainer(cornerRadius = 22.dp, glassOpacity = 0.16f, modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Ukuran & Transparansi", style = MaterialTheme.typography.titleSmall, color = VitroTextPrimary)
+                Text("Ukuran, Transparansi & Posisi Bebas (DIY)", style = MaterialTheme.typography.titleSmall, color = VitroTextPrimary)
                 CompactStudioSlider(
                     label = "Transparansi Kaca",
                     valueText = "${(sb.opacity * 100).roundToInt()}%",
@@ -208,7 +208,7 @@ fun SearchBarStudioTab(
                     label = "Lebar Pencarian",
                     valueText = "${(sb.widthPercent * 100).roundToInt()}%",
                     value = sb.widthPercent,
-                    range = 0.50f..1.0f,
+                    range = 0.45f..1.0f,
                     onChange = { v -> onUpdate { it.copy(searchBar = it.searchBar.copy(widthPercent = v)) } }
                 )
                 CompactStudioSlider(
@@ -218,6 +218,37 @@ fun SearchBarStudioTab(
                     range = 40f..68f,
                     onChange = { v -> onUpdate { it.copy(searchBar = it.searchBar.copy(heightDp = v.roundToInt())) } }
                 )
+                CompactStudioSlider(
+                    label = "Geser Horizontal Kiri / Kanan (X)",
+                    valueText = "${sb.xOffsetDp.roundToInt()} dp",
+                    value = sb.xOffsetDp,
+                    range = -180f..180f,
+                    onChange = { v -> onUpdate { it.copy(searchBar = it.searchBar.copy(xOffsetDp = v)) } }
+                )
+                CompactStudioSlider(
+                    label = "Geser Vertikal Atas / Bawah (Y)",
+                    valueText = "${sb.yOffsetDp.roundToInt()} dp",
+                    value = sb.yOffsetDp,
+                    range = -460f..760f,
+                    onChange = { v -> onUpdate { it.copy(searchBar = it.searchBar.copy(yOffsetDp = v)) } }
+                )
+                if (sb.xOffsetDp != 0f || sb.yOffsetDp != 0f) {
+                    Button(
+                        onClick = {
+                            onUpdate {
+                                it.copy(searchBar = it.searchBar.copy(xOffsetDp = 0f, yOffsetDp = 0f))
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White.copy(alpha = 0.14f),
+                            contentColor = VitroCyanAccent
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Reset Posisi Pencarian", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
     }

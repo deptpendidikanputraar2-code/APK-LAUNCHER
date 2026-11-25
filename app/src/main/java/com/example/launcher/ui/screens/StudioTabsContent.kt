@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import com.example.launcher.model.BatteryIconStyle
 import com.example.launcher.model.DockColorPreset
 import com.example.launcher.model.DockLayoutMode
+import com.example.launcher.model.DockSideAlignment
 import com.example.launcher.model.EdgePanelTriggerZone
 import com.example.launcher.model.InstalledApp
 import com.example.launcher.model.LauncherConfig
@@ -191,6 +192,47 @@ fun DockStudioTab(
                     selected = config.dockLayout == mode,
                     onClick = { onUpdate { it.copy(dockLayout = mode) } }
                 )
+            }
+        }
+
+        if (config.dockLayout == DockLayoutMode.LEFT_RAIL || config.dockLayout == DockLayoutMode.RIGHT_RAIL) {
+            StudioSectionTitle("Posisi Vertikal Dock Samping (Atas / Tengah / Bawah)")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DockSideAlignment.entries.forEach { align ->
+                    StudioSmallChip(
+                        text = align.label,
+                        selected = config.dockSideAlignment == align,
+                        onClick = {
+                            onUpdate {
+                                it.copy(
+                                    dockSideAlignment = align,
+                                    dockSideVerticalOffsetDp = 0f
+                                )
+                            }
+                        }
+                    )
+                }
+            }
+            StudioSliderRow(
+                label = "Geser Vertikal Bebas (Atas / Bawah)",
+                valueText = "${config.dockSideVerticalOffsetDp.roundToInt()} dp",
+                value = config.dockSideVerticalOffsetDp,
+                range = -240f..240f,
+                onValueChange = { v -> onUpdate { it.copy(dockSideVerticalOffsetDp = v) } }
+            )
+            if (config.dockSideVerticalOffsetDp != 0f) {
+                OutlinedButton(
+                    onClick = { onUpdate { it.copy(dockSideVerticalOffsetDp = 0f) } },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Rounded.RestartAlt, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Reset Posisi Vertikal Dock Samping", color = VitroCyanAccent)
+                }
             }
         }
 
@@ -709,6 +751,65 @@ fun StatusIndicatorStudioTab(
                     selected = config.batteryStyle == style,
                     onClick = { onUpdate { it.copy(batteryStyle = style) } }
                 )
+            }
+        }
+
+        if (config.statusPosition != StatusIndicatorPosition.INSIDE_DOCK) {
+            StudioSectionTitle("Atur Tata Letak Bebas Indikator (DIY)")
+            Text(
+                text = "Anda juga bisa tahan lama layar Beranda untuk masuk Mode DIY dan seret indikator langsung dengan jari ke mana saja.",
+                style = MaterialTheme.typography.bodySmall,
+                color = VitroTextSecondary
+            )
+            StudioSliderRow(
+                label = "Geser Kiri / Kanan (Posisi X)",
+                valueText = "${config.statusOffsetXDp.roundToInt()} dp",
+                value = config.statusOffsetXDp,
+                range = -180f..180f,
+                onValueChange = { v -> onUpdate { it.copy(statusOffsetXDp = v) } }
+            )
+            StudioSliderRow(
+                label = "Geser Atas / Bawah (Posisi Y)",
+                valueText = "${config.statusOffsetYDp.roundToInt()} dp",
+                value = config.statusOffsetYDp,
+                range = -40f..680f,
+                onValueChange = { v -> onUpdate { it.copy(statusOffsetYDp = v) } }
+            )
+            StudioSliderRow(
+                label = "Ukuran Skala Indikator",
+                valueText = "${(config.statusScale * 100).roundToInt()}%",
+                value = config.statusScale,
+                range = 0.70f..1.50f,
+                onValueChange = { v -> onUpdate { it.copy(statusScale = v) } }
+            )
+            if (config.statusPosition == StatusIndicatorPosition.TOP_STATUS_BAR) {
+                StudioSliderRow(
+                    label = "Lebar Area Baris Status",
+                    valueText = "${(config.statusWidthPercent * 100).roundToInt()}%",
+                    value = config.statusWidthPercent,
+                    range = 0.45f..1.0f,
+                    onValueChange = { v -> onUpdate { it.copy(statusWidthPercent = v) } }
+                )
+            }
+            if (config.statusOffsetXDp != 0f || config.statusOffsetYDp != 0f || config.statusScale != 1.0f || config.statusWidthPercent != 1.0f) {
+                OutlinedButton(
+                    onClick = {
+                        onUpdate {
+                            it.copy(
+                                statusOffsetXDp = 0f,
+                                statusOffsetYDp = 0f,
+                                statusScale = 1.0f,
+                                statusWidthPercent = 1.0f
+                            )
+                        }
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Rounded.RestartAlt, contentDescription = null, tint = VitroCyanAccent, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Reset Posisi & Ukuran Indikator", color = VitroCyanAccent)
+                }
             }
         }
 

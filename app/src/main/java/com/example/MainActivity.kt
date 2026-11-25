@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.zIndex
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -319,11 +320,9 @@ private fun VitroLauncherRoot(
         else -> HomeNavTab.HOME
     }
 
+    // iPhone-style Dynamic Island: present EVERYWHERE (Home, Lock, App Drawer, Search, Studio)
     val showDynamicIsland = config.dynamicIsland.enabled &&
-        !overlays.isStudioOpen &&
         !overlays.isQuickPanelOpen &&
-        !overlays.isAppDrawerOpen &&
-        !overlays.isUniversalSearchOpen &&
         (!overlays.isLockScreenActive || config.dynamicIsland.showOnLockScreen)
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -367,7 +366,9 @@ private fun VitroLauncherRoot(
             onUpdateHomeWidgetLayout = viewModel::updateHomeWidgetLayout,
             onMoveHomeWidgetPage = viewModel::moveHomeWidgetPage,
             onRemoveHomeWidget = viewModel::removeHomeWidget,
-            onUpdateSearchBarLayout = viewModel::updateSearchBarLayout
+            onUpdateSearchBarLayout = viewModel::updateSearchBarLayout,
+            onUpdateSideDockOffset = viewModel::updateSideDockOffset,
+            onUpdateStatusLayout = viewModel::updateStatusIndicatorLayout
         )
 
         // Layer 3: Universal Glass Search Overlay (Apps + Widgets + Vitro Menus)
@@ -523,7 +524,9 @@ private fun VitroLauncherRoot(
                 onOpenQuickPanel = viewModel::openQuickPanel,
                 onOpenNotification = { notif -> viewModel.openNotification(notif, context) },
                 onDismissNotification = viewModel::dismissLiveNotification,
-                modifier = Modifier.align(Alignment.TopCenter)
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .zIndex(60f)
             )
         }
 

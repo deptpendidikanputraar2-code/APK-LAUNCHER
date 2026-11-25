@@ -354,11 +354,28 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         updateConfig { current ->
             current.copy(
                 searchBar = current.searchBar.copy(
-                    widthPercent = widthPercent.coerceIn(0.50f, 1.0f),
+                    widthPercent = widthPercent.coerceIn(0.45f, 1.0f),
                     heightDp = heightDp.coerceIn(40, 68),
-                    xOffsetDp = xOffsetDp.coerceIn(-120f, 120f),
-                    yOffsetDp = yOffsetDp.coerceIn(-120f, 360f)
+                    xOffsetDp = xOffsetDp.coerceIn(-180f, 180f),
+                    yOffsetDp = yOffsetDp.coerceIn(-460f, 760f)
                 )
+            )
+        }
+    }
+
+    // --- Side Dock Free Vertical Position (Top / Center / Bottom + Free Offset) ---
+    fun updateSideDockOffset(offsetYDp: Float) {
+        updateConfig { current ->
+            current.copy(dockSideVerticalOffsetDp = offsetYDp.coerceIn(-260f, 260f))
+        }
+    }
+
+    // --- Status Indicator Free DIY Position ---
+    fun updateStatusIndicatorLayout(offsetXDp: Float, offsetYDp: Float) {
+        updateConfig { current ->
+            current.copy(
+                statusOffsetXDp = offsetXDp.coerceIn(-180f, 180f),
+                statusOffsetYDp = offsetYDp.coerceIn(-40f, 680f)
             )
         }
     }
